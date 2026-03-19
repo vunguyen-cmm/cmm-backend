@@ -37,10 +37,16 @@ class SchoolListItem(BaseModel):
     enrollment_range: str | None = None
     is_current_customer: bool = False
     logo_url: str | None = None
+    logo_thumb_url: str | None = None
     slug: str | None = None
     cohort_id: uuid.UUID | None = None
     cohort: CohortSummary | None = None
     created_at: datetime | None = None
+    # Link fields (hidden columns in admin table)
+    school_resource_center_url: str | None = None
+    appointlet_link: str | None = None
+    calendar_link: str | None = None
+    bubble_rec_id: str | None = None
 
 
 class SchoolDetail(SchoolListItem):

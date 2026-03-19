@@ -160,8 +160,10 @@ def update_counselor(
     if not role_record:
         raise HTTPException(status_code=404, detail="Counselor not found")
 
-    update_data = body.model_dump(exclude_none=True)
-    if "school_id" in update_data:
+    # Use exclude_unset so explicitly-passed null (e.g. school_id=null) is honoured,
+    # while omitted fields are ignored.
+    update_data = body.model_dump(exclude_unset=True)
+    if "school_id" in update_data and update_data["school_id"] is not None:
         school = db.query(School).filter(School.id == update_data["school_id"]).first()
         if not school:
             raise HTTPException(status_code=404, detail="School not found")
