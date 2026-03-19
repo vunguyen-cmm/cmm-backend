@@ -1,0 +1,1 @@
+"""Meetings feature: OneOnOneMeeting model."""

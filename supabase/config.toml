@@ -1,0 +1,31 @@
+# Local Supabase config for CMM Backend
+# See: https://supabase.com/docs/guides/local-development/cli/config
+# After editing, run: supabase stop && supabase start
+
+project_id = "cmm-backend"
+
+[api]
+port = 54321
+# Kong gateway and REST API (PostgREST)
+
+[db]
+# Postgres: connect on port 54322 (default) for direct SQL
+# Database name is "postgres" by default; use cmm_dev for testing if you create it
+
+[studio]
+# Supabase Studio UI (default port 54323)
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/auth/callback", "http://localhost:8000"]
+
+[auth.email]
+enable_signup = true
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_GOOGLE_SECRET)"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
