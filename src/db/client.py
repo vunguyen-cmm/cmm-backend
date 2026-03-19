@@ -11,8 +11,9 @@ from src.config import settings
 
 @lru_cache
 def _create_supabase_client() -> Client:
-    """Create Supabase client (cached). Uses settings for URL and key."""
-    return create_client(settings.supabase_url, settings.supabase_key)
+    """Create Supabase client using the service role key (required for auth.admin.* APIs)."""
+    key = settings.supabase_service_role_key or settings.supabase_key
+    return create_client(settings.supabase_url, key)
 
 
 def get_supabase() -> Client:

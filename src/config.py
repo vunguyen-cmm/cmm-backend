@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # App
     secret_key: str = "change-me-in-production"
-    log_level: str = "INFO"
+    log_level: str = "DEBUG"
     debug: bool = False
     environment: str = "development"
     frontend_url: str = "http://localhost:5173"

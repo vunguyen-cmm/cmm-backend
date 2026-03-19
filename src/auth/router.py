@@ -1,9 +1,12 @@
 """Auth and counselor management endpoints."""
 
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session, joinedload
 
 from src.auth.deps import AdminDep, CurrentUserDep, get_current_user
@@ -109,13 +112,54 @@ def create_counselor(
     if body.password:
         create_params["password"] = body.password
 
+    logger.info("Creating Supabase user: email=%s school_id=%s role=%s", body.email, body.school_id, body.role)
     try:
         resp = supabase.auth.admin.create_user(create_params)
         if not resp or not resp.user:
             raise HTTPException(status_code=500, detail="Failed to create auth user")
         new_user = resp.user
+        logger.info("Supabase user created: id=%s", new_user.id)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.error("create_user failed: %s (type=%s)", exc, type(exc).__name__)
+        # If the user already exists in Supabase Auth (e.g. from prior OAuth login),
+        # find them by email and assign the role instead of failing.
+        error_msg = str(exc).lower()
+        if "already" in error_msg or "exists" in error_msg or "registered" in error_msg:
+            logger.info("User exists in Supabase, looking up by email: %s", body.email)
+            try:
+                users_resp = supabase.auth.admin.list_users()
+                existing = next(
+                    (u for u in (users_resp or []) if u.email and u.email.lower() == body.email.lower()),
+                    None,
+                )
+                logger.info("list_users found: %s", existing.id if existing else None)
+            except Exception as list_exc:
+                logger.error("list_users failed: %s", list_exc)
+                existing = None
+            if not existing:
+                raise HTTPException(status_code=400, detail=str(exc))
+            new_user = existing
+        else:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    # Check if a role record already exists for this user
+    existing_role = db.query(UserRole).filter(UserRole.user_id == uuid.UUID(new_user.id)).first()
+    if existing_role:
+        existing_role.role = body.role
+        existing_role.school_id = body.school_id
+        db.commit()
+        db.refresh(existing_role)
+        role_record = (
+            db.query(UserRole)
+            .options(joinedload(UserRole.school))
+            .filter(UserRole.id == existing_role.id)
+            .one()
+        )
+        auth_user = {
+            "email": new_user.email or "",
+            "user_metadata": getattr(new_user, "user_metadata", {}) or {},
+        }
+        return _build_counselor_out(role_record, auth_user)
 
     # Create role record
     role_record = UserRole(
