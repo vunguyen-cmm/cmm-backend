@@ -45,3 +45,4 @@ class Cohort(Base):
 
     schools: Mapped[list[School]] = relationship(back_populates="cohort")
     webinars: Mapped[list[Webinar]] = relationship(back_populates="cohort")
+    content_assets = relationship("ContentAsset", secondary="content_asset_cohorts", back_populates="cohorts")

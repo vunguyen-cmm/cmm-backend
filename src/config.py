@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # Airtable (for schema inference / sync scripts)
     airtable_api_key: str = ""
     airtable_base_id: str = ""
+    airtable_asset_base_id: str = ""
     # Optional: direct Postgres URL for running DDL (from Supabase Dashboard -> Database -> Connection string).
     database_url: str = ""
 

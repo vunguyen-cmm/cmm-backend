@@ -9,6 +9,17 @@ from src.db.enums import CycleStatus, ProposalType, RegistrationStatus, SalesSta
 
 from src.assets.models import Asset
 from src.calendar.models import PaulMartinCalendar
+from src.content.models import (
+    AssetType,
+    ContentAsset,
+    ContentAssetCohort,
+    ContentAssetObjective,
+    ContentAssetTopic,
+    ContentAssetWorkshop,
+    Objective,
+    ObjectiveWorkshop,
+    Topic,
+)
 from src.cycles.models import Cohort, Cycle
 from src.meetings.models import OneOnOneMeeting
 from src.sales.models import Invoice, Sale
@@ -24,10 +35,18 @@ __all__ = [
     "SalesStatus",
     # Models
     "Asset",
+    "AssetType",
     "Cohort",
     "Contact",
+    "ContentAsset",
+    "ContentAssetCohort",
+    "ContentAssetObjective",
+    "ContentAssetTopic",
+    "ContentAssetWorkshop",
     "Cycle",
     "Invoice",
+    "Objective",
+    "ObjectiveWorkshop",
     "OneOnOneMeeting",
     "PaulMartinCalendar",
     "PortalMapping",
@@ -35,6 +54,7 @@ __all__ = [
     "School",
     "SchoolDateSelector",
     "Setting",
+    "Topic",
     "Webinar",
     "Workshop",
     "WorkshopAsset",

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import src.assets.models  # noqa: F401
 import src.auth.models  # noqa: F401
 import src.calendar.models  # noqa: F401
+import src.content.models  # noqa: F401
 import src.cycles.models  # noqa: F401
 import src.meetings.models  # noqa: F401
 import src.sales.models  # noqa: F401
@@ -22,6 +23,7 @@ import src.workshops.models  # noqa: F401
 
 from src.auth.router import router as auth_router
 from src.config import settings
+from src.content.router import router as content_router
 from src.cycles.router import router as cohorts_router
 from src.db import get_supabase
 from src.schools.router import router as schools_router
@@ -52,6 +54,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(schools_router)
 app.include_router(cohorts_router)
+app.include_router(content_router)
 
 
 @app.get("/health")
