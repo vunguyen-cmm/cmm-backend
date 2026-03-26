@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-One-time migration: pull article content from WordPress REST API into content_assets.
+Sync content from WordPress REST API into content_assets.
 
-For each content_asset whose link points to the configured WP domain:
+For each content_asset whose link points to the configured WP domain
+(skipping wp-content file upload URLs):
   - Extracts the URL slug
-  - Fetches content.rendered + excerpt.rendered via WP REST API
+  - Fetches title, content.rendered, and excerpt.rendered via WP REST API
   - Sanitizes the HTML (strips <script>, on* event attrs)
-  - Stores in content_assets.content (and description if empty)
+  - Updates name (title), content, and description in content_assets
   - Records wp_post_id and wp_synced_at for audit trail
-
-Run once, then WordPress can be decommissioned.
 
 Usage (from project root):
   uv run python scripts/migrate_wp_content.py --wp-domain https://yoursite.com
@@ -73,7 +72,7 @@ def fetch_wp_post(wp_domain: str, slug: str) -> dict | None:
     try:
         resp = requests.get(
             url,
-            params={"slug": slug, "_fields": "id,content,excerpt,link"},
+            params={"slug": slug, "_fields": "id,title,content,excerpt,link"},
             timeout=15,
         )
         resp.raise_for_status()
@@ -82,6 +81,11 @@ def fetch_wp_post(wp_domain: str, slug: str) -> dict | None:
     except Exception as e:
         print(f"    [warn] WP API error for slug '{slug}': {e}")
         return None
+
+
+def is_wp_content_link(link: str) -> bool:
+    """Return True if the link points to a wp-content file upload (not a post)."""
+    return "/wp-content/" in link
 
 
 def extract_slug(link: str, wp_domain: str) -> str | None:
@@ -102,7 +106,7 @@ def extract_slug(link: str, wp_domain: str) -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Migrate WordPress content into content_assets.content (one-time)"
+        description="Sync WordPress title/content/description into content_assets"
     )
     parser.add_argument(
         "--wp-domain",
@@ -141,6 +145,12 @@ def main() -> int:
         for row in rows:
             asset_id, name, link, existing_content, existing_desc = row
 
+            # Skip file uploads — these aren't WordPress posts
+            if is_wp_content_link(link):
+                print(f"  [skip] '{name}' — wp-content file upload, not a post")
+                skipped += 1
+                continue
+
             slug = extract_slug(link, args.wp_domain)
             if not slug:
                 skipped += 1
@@ -160,7 +170,7 @@ def main() -> int:
                 continue
 
             raw_html = post.get("content", {}).get("rendered", "")
-            excerpt_html = post.get("content", {}).get("rendered", "")
+            wp_title = post.get("title", {}).get("rendered", "").strip()
             excerpt_text = re.sub(r"<[^>]+>", "", post.get("excerpt", {}).get("rendered", "")).strip()
             wp_post_id = str(post.get("id", ""))
 
@@ -172,7 +182,7 @@ def main() -> int:
             clean_html = sanitize_html(raw_html)
 
             if args.dry_run:
-                print(f"would write {len(clean_html)} chars (wp_id={wp_post_id})")
+                print(f"would write {len(clean_html)} chars, title='{wp_title}' (wp_id={wp_post_id})")
                 migrated += 1
                 continue
 
@@ -180,22 +190,24 @@ def main() -> int:
                 text(
                     """
                     UPDATE content_assets SET
+                        name         = :name,
                         content      = :content,
+                        description  = :description,
                         wp_post_id   = :wp_post_id,
-                        wp_synced_at = :wp_synced_at,
-                        description  = COALESCE(NULLIF(description, ''), :excerpt)
+                        wp_synced_at = :wp_synced_at
                     WHERE id = :id
                     """
                 ),
                 {
                     "id": str(asset_id),
+                    "name": wp_title or name,
                     "content": clean_html,
+                    "description": excerpt_text or existing_desc or None,
                     "wp_post_id": wp_post_id,
                     "wp_synced_at": datetime.now(timezone.utc),
-                    "excerpt": excerpt_text or None,
                 },
             )
-            print(f"✓ {len(clean_html)} chars")
+            print(f"✓ {len(clean_html)} chars, title='{wp_title}'")
             migrated += 1
 
     print()

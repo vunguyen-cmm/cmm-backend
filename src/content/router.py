@@ -9,7 +9,7 @@ from typing import Annotated
 import boto3
 import requests
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import selectinload
 
 from src.auth.deps import AdminDep
@@ -63,6 +63,12 @@ def list_asset_types(db: DbDep):
     return db.scalars(select(AssetType).order_by(AssetType.name)).all()
 
 
+@router.get("/asset-types/public", response_model=list[AssetTypeOut])
+def list_asset_types_public(db: DbDep):
+    """Public endpoint — list all asset types."""
+    return db.scalars(select(AssetType).order_by(AssetType.name)).all()
+
+
 @router.post("/asset-types", response_model=AssetTypeOut, status_code=status.HTTP_201_CREATED)
 def create_asset_type(body: AssetTypeCreate, _admin: AdminDep, db: DbDep):
     existing = db.scalar(select(AssetType).where(AssetType.name == body.name))
@@ -103,6 +109,12 @@ def list_topics(db: DbDep):
     return db.scalars(select(Topic).order_by(Topic.name)).all()
 
 
+@router.get("/topics/public", response_model=list[TopicOut])
+def list_topics_public(db: DbDep):
+    """Public endpoint — list all topics."""
+    return db.scalars(select(Topic).order_by(Topic.name)).all()
+
+
 @router.post("/topics", response_model=TopicOut, status_code=status.HTTP_201_CREATED)
 def create_topic(body: TopicCreate, _admin: AdminDep, db: DbDep):
     existing = db.scalar(select(Topic).where(Topic.name == body.name))
@@ -139,6 +151,12 @@ def delete_topic(topic_id: uuid.UUID, _admin: AdminDep, db: DbDep):
 
 @router.get("/objectives", response_model=list[ObjectiveOut])
 def list_objectives(db: DbDep):
+    return db.scalars(select(Objective).order_by(Objective.name)).all()
+
+
+@router.get("/objectives/public", response_model=list[ObjectiveOut])
+def list_objectives_public(db: DbDep):
+    """Public endpoint — list all objectives."""
     return db.scalars(select(Objective).order_by(Objective.name)).all()
 
 
@@ -267,6 +285,121 @@ def list_assets(
 
     items = db.scalars(stmt.offset(skip).limit(limit)).all()
     return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+
+def _parse_csv_uuids(value: str | None) -> list[uuid.UUID]:
+    """Parse a comma-separated string of UUIDs into a list."""
+    if not value:
+        return []
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    try:
+        return [uuid.UUID(p) for p in parts]
+    except ValueError:
+        return []
+
+
+@router.get("/assets/public", response_model=ContentAssetListResponse)
+def list_assets_public(
+    db: DbDep,
+    search: Annotated[str | None, Query()] = None,
+    asset_type_id: Annotated[uuid.UUID | None, Query()] = None,
+    asset_type_ids: Annotated[str | None, Query()] = None,
+    objective_id: Annotated[uuid.UUID | None, Query()] = None,
+    objective_ids: Annotated[str | None, Query()] = None,
+    topic_id: Annotated[uuid.UUID | None, Query()] = None,
+    topic_ids: Annotated[str | None, Query()] = None,
+    cohort_id: Annotated[uuid.UUID | None, Query()] = None,
+    is_featured: Annotated[bool | None, Query()] = None,
+    sort_by: Annotated[str, Query()] = "created_at",
+    sort_dir: Annotated[str, Query()] = "desc",
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    """Public endpoint — only returns published assets.
+
+    Supports multi-value filtering via comma-separated ID params
+    (e.g. ``objective_ids=id1,id2``).  Single-value params are kept
+    for backward compatibility.
+    """
+    # Fuzzy search uses pg_trgm word_similarity() on name and description.
+    # Name matches are weighted 2x higher than description matches so that
+    # assets *about* the search term rank above those that merely mention it.
+    _NAME_THRESHOLD = 0.3
+    _DESC_THRESHOLD = 0.4
+
+    stmt = (
+        select(ContentAsset)
+        .options(selectinload(ContentAsset.asset_type))
+        .where(ContentAsset.status == "published")
+    )
+
+    has_search = bool(search and search.strip())
+    if has_search:
+        search = search.strip()
+        name_sim = func.word_similarity(literal(search), ContentAsset.name)
+        desc_sim = func.word_similarity(
+            literal(search),
+            func.coalesce(ContentAsset.description, literal("")),
+        )
+        # Filter: must have a meaningful match in name OR description
+        stmt = stmt.where(
+            or_(
+                name_sim > _NAME_THRESHOLD,
+                desc_sim > _DESC_THRESHOLD,
+                ContentAsset.name.ilike(f"%{search}%"),
+            )
+        )
+
+    # Asset type filtering (single or multi)
+    at_ids = _parse_csv_uuids(asset_type_ids)
+    if at_ids:
+        stmt = stmt.where(ContentAsset.asset_type_id.in_(at_ids))
+    elif asset_type_id:
+        stmt = stmt.where(ContentAsset.asset_type_id == asset_type_id)
+
+    if is_featured is not None:
+        stmt = stmt.where(ContentAsset.is_featured == is_featured)
+
+    # Objective filtering (single or multi)
+    obj_ids = _parse_csv_uuids(objective_ids)
+    if obj_ids:
+        stmt = stmt.join(ContentAssetObjective).where(ContentAssetObjective.objective_id.in_(obj_ids))
+    elif objective_id:
+        stmt = stmt.join(ContentAssetObjective).where(ContentAssetObjective.objective_id == objective_id)
+
+    # Topic filtering (single or multi)
+    t_ids = _parse_csv_uuids(topic_ids)
+    if t_ids:
+        stmt = stmt.join(ContentAssetTopic).where(ContentAssetTopic.topic_id.in_(t_ids))
+    elif topic_id:
+        stmt = stmt.join(ContentAssetTopic).where(ContentAssetTopic.topic_id == topic_id)
+
+    if cohort_id:
+        stmt = stmt.join(ContentAssetCohort).where(ContentAssetCohort.cohort_id == cohort_id)
+
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = db.scalar(count_stmt)
+
+    # When searching, order by relevance — name matches weighted 2x.
+    # Otherwise honour the caller's sort preference.
+    if has_search:
+        name_sim = func.word_similarity(literal(search), ContentAsset.name)
+        desc_sim = func.word_similarity(
+            literal(search),
+            func.coalesce(ContentAsset.description, literal("")),
+        )
+        relevance = name_sim * literal(2) + desc_sim
+        stmt = stmt.order_by(relevance.desc(), ContentAsset.created_at.desc())
+    else:
+        sort_col = getattr(ContentAsset, sort_by, ContentAsset.created_at)
+        if sort_dir == "desc":
+            stmt = stmt.order_by(sort_col.desc())
+        else:
+            stmt = stmt.order_by(sort_col.asc())
+
+    items = db.scalars(stmt.offset(skip).limit(limit)).all()
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
+
 
 
 @router.get("/assets/{asset_id}/public", response_model=ContentAssetDetail)

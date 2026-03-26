@@ -24,3 +24,5 @@ env/
 
 # Misc
 .DS_Store
+
+airtable_csv_exports/
