@@ -17,6 +17,9 @@ from src.schools.schemas import (
     SchoolListItem,
     SchoolListResponse,
     SchoolPasswordUpdate,
+    SchoolPasswordVerify,
+    SchoolPublic,
+    SchoolPublicListResponse,
     SchoolUpdate,
 )
 
@@ -62,6 +65,60 @@ def list_cities(
     if state:
         q = q.where(School.state == state)
     return list(db.execute(q).scalars().all())
+
+
+# ── Public (no-auth) endpoints ────────────────────────────────────────────────
+
+
+@router.get("/public", response_model=SchoolPublicListResponse)
+def list_schools_public(
+    db: DbDep,
+    search: str | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> SchoolPublicListResponse:
+    """List current-customer schools for the public discovery page (no auth)."""
+    q = db.query(School).filter(School.is_current_customer.is_(True))
+    if search:
+        term = f"%{search}%"
+        q = q.filter((School.name.ilike(term)) | (School.city.ilike(term)))
+    total = q.count()
+    schools = q.order_by(School.name).offset(skip).limit(limit).all()
+    return SchoolPublicListResponse(
+        items=[SchoolPublic.model_validate(s) for s in schools],
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/slug/{slug}", response_model=SchoolPublic)
+def get_school_by_slug(slug: str, db: DbDep) -> SchoolPublic:
+    """Get a school by slug (no auth required). Returns safe public fields only."""
+    school = db.query(School).filter(School.slug == slug).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    return SchoolPublic.model_validate(school)
+
+
+@router.post("/slug/{slug}/verify-password", status_code=status.HTTP_200_OK)
+def verify_school_password(slug: str, body: SchoolPasswordVerify, db: DbDep) -> dict:
+    """Verify the school portal password. Returns 200 + school data if correct, 401 if wrong."""
+    school = db.query(School).filter(School.slug == slug).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    if school.cmm_website_password != body.password:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    return {"school": SchoolPublic.model_validate(school).model_dump(mode="json")}
+
+
+@router.get("/{school_id}/public", response_model=SchoolPublic)
+def get_school_public(school_id: uuid.UUID, db: DbDep) -> SchoolPublic:
+    """Get a school by UUID (no auth required). Returns safe public fields only."""
+    school = db.query(School).filter(School.id == school_id).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    return SchoolPublic.model_validate(school)
 
 
 # ── Collection endpoints ───────────────────────────────────────────────────────

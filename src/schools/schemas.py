@@ -102,3 +102,30 @@ class SchoolListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+# ── Public (no-auth) schemas ────────────────────────────────────────────────
+
+class SchoolPublic(BaseModel):
+    """Safe school data returned to unauthenticated portal visitors."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    slug: str | None = None
+    city: str | None = None
+    state: str | None = None
+    logo_url: str | None = None
+    logo_thumb_url: str | None = None
+    is_current_customer: bool = False
+
+
+class SchoolPublicListResponse(BaseModel):
+    items: list[SchoolPublic]
+    total: int
+    skip: int
+    limit: int
+
+
+class SchoolPasswordVerify(BaseModel):
+    password: str
