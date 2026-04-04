@@ -1,0 +1,20 @@
+# Secrets injected from AWS SSM Parameter Store into the ECS container.
+# Path convention: /copilot/cmm-backend/<environment>/secrets/<name>
+# Add new secrets here — no Terraform changes needed.
+secrets:
+  - SUPABASE_URL
+  - SUPABASE_KEY
+  - SUPABASE_SERVICE_ROLE_KEY
+  - AWS_ACCESS_KEY_ID
+  - AWS_SECRET_ACCESS_KEY
+  - S3_BUCKET_NAME
+  - SECRET_KEY
+  - DATABASE_URL
+
+# Non-secret environment variables (set directly, not from SSM)
+environment:
+  - name: ENVIRONMENT
+  - name: DEBUG
+    value: "false"
+  - name: LOG_LEVEL
+    value: INFO

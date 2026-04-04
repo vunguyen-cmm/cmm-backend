@@ -1,0 +1,105 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: cmm/backend
+  ECS_APP_NAME: cmm-backend
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    env:
+      ENV: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:$ENV-latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$ENV-latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition cmm-$ENV-backend \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Build secrets and environment from manifest
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          SSM_PREFIX="arn:aws:ssm:${AWS_REGION}:${ACCOUNT_ID}:parameter/copilot/${ECS_APP_NAME}/${ENV}/secrets"
+
+          # Read secret names from manifest.yml and inject into task definition
+          SECRETS=$(yq -r '.secrets[]' manifest.yml | jq -R -s -c '
+            split("\n") | map(select(length > 0)) | map({
+              name: .,
+              valueFrom: ("'"$SSM_PREFIX"'/" + .)
+            })
+          ')
+
+          # Read environment variables from manifest.yml
+          ENV_VARS=$(yq -o=json '.environment // []' manifest.yml | jq -c '
+            map({name: .name, value: (.value // "'"$ENV"'")})
+          ')
+
+          # Update the container's secrets and environment in the task definition
+          jq --argjson secrets "$SECRETS" --argjson env_vars "$ENV_VARS" \
+            '.containerDefinitions[0].secrets = $secrets | .containerDefinitions[0].environment = $env_vars' \
+            task-definition.json > task-definition-updated.json
+          mv task-definition-updated.json task-definition.json
+
+      - name: Update ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: backend
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: cmm-${{ env.ENV }}-backend
+          cluster: cmm-${{ env.ENV }}-cluster
+          wait-for-service-stability: true
