@@ -2,7 +2,6 @@
 name = "cmm-backend"
 version = "0.1.0"
 description = "CMM Backend — FastAPI + Supabase (PostgreSQL)"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.115.0",
