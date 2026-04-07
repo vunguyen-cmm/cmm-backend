@@ -61,7 +61,7 @@ from src.workshops.models import Workshop
 AIRTABLE_WORKSHOPS_TABLE = "Workshops"
 AIRTABLE_WORKSHOPS_ART_FIELD = "Workshop Art"
 
-AIRTABLE_CONTENT_TABLE = "Content Assets"
+AIRTABLE_CONTENT_TABLE = "Assets"
 AIRTABLE_CONTENT_IMAGE_FIELD = "Image"
 
 

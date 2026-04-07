@@ -38,6 +38,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import src.assets.models  # noqa: F401
 import src.auth.models  # noqa: F401
 import src.calendar.models  # noqa: F401
+import src.content.models  # noqa: F401
 import src.cycles.models  # noqa: F401
 import src.meetings.models  # noqa: F401
 import src.sales.models  # noqa: F401
