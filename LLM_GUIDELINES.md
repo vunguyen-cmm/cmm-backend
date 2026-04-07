@@ -634,7 +634,6 @@ AWS_REGION=us-east-1
 S3_BUCKET_NAME=your-bucket
 
 # App
-SECRET_KEY=your-secret-key
 LOG_LEVEL=INFO
 DEBUG=false
 ENVIRONMENT=development

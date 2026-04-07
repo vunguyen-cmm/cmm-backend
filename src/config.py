@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     s3_bucket_name: str = ""
 
     # App
-    secret_key: str = "change-me-in-production"
     log_level: str = "DEBUG"
     debug: bool = False
     environment: str = "development"
