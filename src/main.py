@@ -20,6 +20,7 @@ import src.sales.models  # noqa: F401
 import src.schools.models  # noqa: F401
 import src.settings.models  # noqa: F401
 import src.workshops.models  # noqa: F401
+import src.guest_contacts.models  # noqa: F401
 
 from src.auth.router import router as auth_router
 from src.config import settings
@@ -28,6 +29,7 @@ from src.cycles.router import router as cohorts_router
 from src.db import get_supabase
 from src.schools.router import router as schools_router
 from src.workshops.router import router as workshops_router
+from src.guest_contacts.router import router as guest_contacts_router
 
 
 @asynccontextmanager
@@ -58,6 +60,7 @@ app.include_router(schools_router)
 app.include_router(cohorts_router)
 app.include_router(content_router)
 app.include_router(workshops_router)
+app.include_router(guest_contacts_router)
 
 
 @app.get("/health")

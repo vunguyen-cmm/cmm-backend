@@ -8,6 +8,7 @@ Import all feature models here so that:
 from src.db.enums import CycleStatus, ProposalType, RegistrationStatus, SalesStatus
 
 from src.assets.models import Asset
+from src.guest_contacts.models import GuestContact
 from src.calendar.models import PaulMartinCalendar
 from src.content.models import (
     AssetType,
@@ -38,6 +39,7 @@ __all__ = [
     "AssetType",
     "Cohort",
     "Contact",
+    "GuestContact",
     "ContentAsset",
     "ContentAssetCohort",
     "ContentAssetObjective",
