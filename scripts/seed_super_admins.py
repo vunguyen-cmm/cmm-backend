@@ -28,8 +28,8 @@ from src.db.deps import get_db
 
 SUPER_ADMIN_EMAILS = [
     "vu.nguyen@collegemoneymethod.com",
-    # "paul.martin@collegemoneymethod.com",
-    # "caroling.lee@collegemoneymethod.com",
+    "paul.martin@collegemoneymethod.com",
+    "caroling.lee@collegemoneymethod.com",
 ]
 
 

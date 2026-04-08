@@ -51,34 +51,13 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:$ENV-latest .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$ENV-latest
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        run: .github/scripts/build-push-image.sh
 
       - name: Download current task definition
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition cmm-$ENV-backend \
-            --query taskDefinition \
-            > task-definition.json
+        run: .github/scripts/download-task-definition.sh
 
       - name: Build secrets from manifest
-        run: |
-          SSM_PREFIX="arn:aws:ssm:${AWS_REGION}:${AWS_ACCOUNT_ID}:parameter/copilot/${ECS_APP_NAME}/${ENV}/secrets"
-
-          SECRETS=$(yq -r '.secrets[]' manifest.yml | jq -R -s -c '
-            split("\n") | map(select(length > 0)) | map({
-              name: .,
-              valueFrom: ("'"$SSM_PREFIX"'/" + .)
-            })
-          ')
-
-          jq --argjson secrets "$SECRETS" \
-            '.containerDefinitions[0].secrets = $secrets' \
-            task-definition.json > task-definition-updated.json
-          mv task-definition-updated.json task-definition.json
+        run: .github/scripts/build-secrets.sh
 
       - name: Update ECS task definition
         id: task-def
@@ -88,10 +67,21 @@ jobs:
           container-name: backend
           image: ${{ steps.build-image.outputs.image }}
 
+      - name: Register task definition
+        id: register-task-def
+        env:
+          TASK_DEF_FILE: ${{ steps.task-def.outputs.task-definition }}
+        run: .github/scripts/register-task-definition.sh
+
+      - name: Run Alembic migrations
+        env:
+          TASK_DEF_ARN: ${{ steps.register-task-def.outputs.task-def-arn }}
+        run: .github/scripts/run-migrations.sh
+
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          task-definition: ${{ steps.register-task-def.outputs.task-def-arn }}
           service: cmm-${{ env.ENV }}-backend
           cluster: cmm-${{ env.ENV }}-cluster
           wait-for-service-stability: true
