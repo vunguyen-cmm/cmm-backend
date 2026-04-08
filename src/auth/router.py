@@ -2,9 +2,9 @@
 
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session, joinedload
@@ -13,6 +13,7 @@ from src.auth.deps import AdminDep, CurrentUserDep, get_current_user
 from src.auth.models import UserRole
 from src.auth.schemas import (
     CounselorCreate,
+    CounselorListResponse,
     CounselorOut,
     CounselorUpdate,
     UserRoleOut,
@@ -56,35 +57,72 @@ def _build_counselor_out(role_record: UserRole, auth_user: dict) -> CounselorOut
     )
 
 
-@router.get("/api/v1/counselors", response_model=list[CounselorOut])
+@router.get("/api/v1/counselors", response_model=CounselorListResponse)
 def list_counselors(
     _admin: AdminDep,
     db: DbDep,
     supabase=Depends(get_supabase),
-) -> list[CounselorOut]:
-    """List all counselor and viewer accounts."""
-    role_records = (
+    search: str | None = Query(default=None),
+    school_id: uuid.UUID | None = Query(default=None),
+    role: Literal["counselor", "viewer"] | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> CounselorListResponse:
+    """List counselor/viewer accounts with pagination, search, and filters."""
+    # Build base query
+    q = (
         db.query(UserRole)
         .options(joinedload(UserRole.school))
         .filter(UserRole.role.in_(["counselor", "viewer"]))
-        .order_by(UserRole.created_at)
-        .all()
     )
 
-    # Fetch Supabase user data for each user_id via admin API
-    results: list[CounselorOut] = []
-    for record in role_records:
-        try:
-            resp = supabase.auth.admin.get_user_by_id(str(record.user_id))
-            if resp and resp.user:
-                auth_user = {
-                    "email": resp.user.email or "",
-                    "user_metadata": resp.user.user_metadata or {},
+    if school_id:
+        q = q.filter(UserRole.school_id == school_id)
+    if role:
+        q = q.filter(UserRole.role == role)
+
+    role_records = q.order_by(UserRole.created_at).all()
+
+    # Batch-fetch all Supabase auth users
+    auth_users_map: dict[str, dict] = {}
+    try:
+        page = 1
+        while True:
+            users_resp = supabase.auth.admin.list_users(page=page, per_page=1000)
+            users = users_resp if isinstance(users_resp, list) else []
+            for u in users:
+                auth_users_map[u.id] = {
+                    "email": u.email or "",
+                    "user_metadata": u.user_metadata or {},
                 }
-                results.append(_build_counselor_out(record, auth_user))
-        except Exception:
-            pass
-    return results
+            if len(users) < 1000:
+                break
+            page += 1
+    except Exception as exc:
+        logger.warning("Could not batch-fetch Supabase users: %s", exc)
+
+    # Build full list with auth data merged
+    all_items: list[CounselorOut] = []
+    for record in role_records:
+        auth_user = auth_users_map.get(str(record.user_id))
+        if not auth_user:
+            continue
+        all_items.append(_build_counselor_out(record, auth_user))
+
+    # Apply search filter (on name, email, school_name)
+    if search:
+        term = search.lower()
+        all_items = [
+            c for c in all_items
+            if term in (c.full_name or "").lower()
+            or term in c.email.lower()
+            or term in (c.school_name or "").lower()
+        ]
+
+    total = len(all_items)
+    paginated = all_items[skip : skip + limit]
+
+    return CounselorListResponse(items=paginated, total=total, skip=skip, limit=limit)
 
 
 @router.post("/api/v1/counselors", response_model=CounselorOut, status_code=status.HTTP_201_CREATED)

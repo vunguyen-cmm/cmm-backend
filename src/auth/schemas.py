@@ -46,3 +46,10 @@ class CounselorOut(BaseModel):
     role: str
     school_id: uuid.UUID | None
     school_name: str | None
+
+
+class CounselorListResponse(BaseModel):
+    items: list[CounselorOut]
+    total: int
+    skip: int
+    limit: int
