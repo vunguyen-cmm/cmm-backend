@@ -33,9 +33,9 @@ class AssetTypeUpdate(BaseModel):
     icon_url: str | None = None
 
 
-# ── Topics ────────────────────────────────────────────────────────────────────
+# ── Goals (formerly Topics) ──────────────────────────────────────────────────
 
-class TopicOut(BaseModel):
+class GoalOut(BaseModel):
     id: uuid.UUID
     airtable_id: str | None
     parent_id: uuid.UUID | None
@@ -45,13 +45,13 @@ class TopicOut(BaseModel):
     slug: str
     suggested_grades: str | None
     sort_order: int
-    children: list[TopicOut] = []
+    children: list[GoalOut] = []
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
-class TopicCreate(BaseModel):
+class GoalCreate(BaseModel):
     name: str
     parent_id: uuid.UUID | None = None
     description: str | None = None
@@ -61,7 +61,7 @@ class TopicCreate(BaseModel):
     sort_order: int = 0
 
 
-class TopicUpdate(BaseModel):
+class GoalUpdate(BaseModel):
     name: str | None = None
     parent_id: uuid.UUID | None = None
     description: str | None = None
@@ -71,8 +71,18 @@ class TopicUpdate(BaseModel):
     sort_order: int | None = None
 
 
+class GoalSummary(BaseModel):
+    """Lightweight goal reference for topic listings."""
+    id: uuid.UUID
+    name: str
+    icon_url: str | None
+    slug: str
+
+    model_config = {"from_attributes": True}
+
+
 class ContentAssetSummary(BaseModel):
-    """Lightweight asset for topic listings."""
+    """Lightweight asset for goal/topic listings."""
     id: uuid.UUID
     name: str
     description: str | None
@@ -82,8 +92,108 @@ class ContentAssetSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class TopicWithAssets(BaseModel):
-    """Topic with nested published content assets."""
+# ── Topics (new content-rich entity) ─────────────────────────────────────────
+
+class TopicSummary(BaseModel):
+    """Lightweight topic for goal listings."""
+    id: uuid.UUID
+    title: str
+    slug: str
+    description: str | None
+    image_url: str | None
+    status: str
+    sort_order: int
+
+    model_config = {"from_attributes": True}
+
+
+class TopicListItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    description: str | None
+    image_url: str | None
+    status: str
+    sort_order: int
+    goal: GoalSummary | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TopicDetail(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    description: str | None
+    summary: str | None
+    content: str | None
+    action_items: list[str]
+    video_embed_code: str | None
+    image_url: str | None
+    status: str
+    sort_order: int
+    created_at: datetime
+    goal: GoalSummary | None
+    faqs: list[FaqOut]
+    resources: list[ContentAssetListItem]
+
+    model_config = {"from_attributes": True}
+
+
+class TopicCreate(BaseModel):
+    title: str
+    slug: str | None = None  # auto-generated from title if omitted
+    description: str | None = None
+    summary: str | None = None
+    content: str | None = None
+    action_items: list[str] | None = None
+    video_embed_code: str | None = None
+    image_url: str | None = None
+    status: str = "draft"
+    goal_id: uuid.UUID | None = None
+    sort_order: int = 0
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        if v not in ("draft", "published", "archived"):
+            raise ValueError("status must be draft, published, or archived")
+        return v
+
+
+class TopicUpdate(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    description: str | None = None
+    summary: str | None = None
+    content: str | None = None
+    action_items: list[str] | None = None
+    video_embed_code: str | None = None
+    image_url: str | None = None
+    status: str | None = None
+    goal_id: uuid.UUID | None = None
+    sort_order: int | None = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("draft", "published", "archived"):
+            raise ValueError("status must be draft, published, or archived")
+        return v
+
+
+class TopicListResponse(BaseModel):
+    items: list[TopicListItem]
+    total: int
+    skip: int
+    limit: int
+
+
+# ── Goals with nested topics ─────────────────────────────────────────────────
+
+class GoalWithTopics(BaseModel):
+    """Goal with nested published topics (for public grade pages)."""
     id: uuid.UUID
     name: str
     description: str | None
@@ -91,6 +201,7 @@ class TopicWithAssets(BaseModel):
     slug: str
     suggested_grades: str | None
     sort_order: int
+    topics: list[TopicSummary]
     content_assets: list[ContentAssetSummary]
 
     model_config = {"from_attributes": True}
@@ -152,7 +263,7 @@ class ContentAssetDetail(BaseModel):
     created_at: datetime
     asset_type: AssetTypeOut | None
     objectives: list[ObjectiveOut]
-    topics: list[TopicOut]
+    goals: list[GoalOut]
     workshops: list[WorkshopRef]
     cohorts: list[CohortRef]
     faqs: list[FaqOut]
@@ -269,6 +380,17 @@ class ResourcesUpdate(BaseModel):
     items: list[ResourceOrderItem]
 
 
+# ── Topic Resources ──────────────────────────────────────────────────────────
+
+class TopicResourceOrderItem(BaseModel):
+    content_asset_id: uuid.UUID
+    sort_order: int
+
+
+class TopicResourcesUpdate(BaseModel):
+    items: list[TopicResourceOrderItem]
+
+
 # ── Reader Questions ───────────────────────────────────────────────────────────
 
 # ── Grade Configs ─────────────────────────────────────────────────────────────
@@ -285,14 +407,14 @@ class GradeConfigOut(BaseModel):
     page_description: str | None = None
     banner_image_url: str | None = None
     sort_order: int
-    topics: list[TopicWithAssets]
+    goals: list[GoalWithTopics]
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
 class GradeConfigSummary(BaseModel):
-    """Lightweight version without nested topic assets."""
+    """Lightweight version without nested goal assets."""
     id: uuid.UUID
     grade: int
     label: str
@@ -304,7 +426,7 @@ class GradeConfigSummary(BaseModel):
     page_description: str | None = None
     banner_image_url: str | None = None
     sort_order: int
-    topic_ids: list[uuid.UUID]
+    goal_ids: list[uuid.UUID]
 
     model_config = {"from_attributes": True}
 
@@ -334,9 +456,9 @@ class GradeConfigUpdate(BaseModel):
     sort_order: int | None = None
 
 
-class GradeConfigTopicsUpdate(BaseModel):
-    """Update the topics assigned to a grade config."""
-    topic_ids: list[uuid.UUID]
+class GradeConfigGoalsUpdate(BaseModel):
+    """Update the goals assigned to a grade config."""
+    goal_ids: list[uuid.UUID]
 
 
 class ReaderQuestionCreate(BaseModel):

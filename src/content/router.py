@@ -18,16 +18,19 @@ from src.content.models import (
     ContentAsset,
     ContentAssetCohort,
     ContentAssetFaq,
+    ContentAssetGoal,
     ContentAssetObjective,
     ContentAssetResource,
-    ContentAssetTopic,
     ContentAssetWorkshop,
     Faq,
+    Goal,
     GradeConfig,
-    GradeConfigTopic,
+    GradeConfigGoal,
     Objective,
     ReaderQuestion,
     Topic,
+    TopicFaq,
+    TopicResource,
 )
 from src.content.schemas import (
     AssetTypeCreate,
@@ -43,10 +46,14 @@ from src.content.schemas import (
     FaqOut,
     FaqsUpdate,
     FaqUpdate,
+    GoalCreate,
+    GoalOut,
+    GoalUpdate,
+    GoalWithTopics,
     GradeConfigCreate,
+    GradeConfigGoalsUpdate,
     GradeConfigOut,
     GradeConfigSummary,
-    GradeConfigTopicsUpdate,
     GradeConfigUpdate,
     ObjectiveCreate,
     ObjectiveOut,
@@ -56,9 +63,12 @@ from src.content.schemas import (
     RelationshipsUpdate,
     ResourcesUpdate,
     TopicCreate,
-    TopicOut,
+    TopicDetail,
+    TopicListItem,
+    TopicListResponse,
+    TopicResourcesUpdate,
+    TopicSummary,
     TopicUpdate,
-    TopicWithAssets,
 )
 from src.config import settings
 from src.db.deps import DbDep
@@ -111,89 +121,194 @@ def delete_asset_type(asset_type_id: uuid.UUID, _admin: AdminDep, db: DbDep):
     db.commit()
 
 
-# ── Topics ────────────────────────────────────────────────────────────────────
+# ── Goals (formerly Topics) ──────────────────────────────────────────────────
 
-@router.get("/topics", response_model=list[TopicOut])
-def list_topics(db: DbDep):
-    """Admin: list all topics as a tree (top-level with children nested)."""
-    topics = (
-        db.query(Topic)
-        .options(selectinload(Topic.children))
-        .filter(Topic.parent_id.is_(None))
-        .order_by(Topic.sort_order, Topic.name)
+@router.get("/goals", response_model=list[GoalOut])
+def list_goals(db: DbDep):
+    """Admin: list all goals as a tree (top-level with children nested)."""
+    goals = (
+        db.query(Goal)
+        .options(selectinload(Goal.children))
+        .filter(Goal.parent_id.is_(None))
+        .order_by(Goal.sort_order, Goal.name)
         .all()
     )
-    return topics
+    return goals
 
 
-@router.get("/topics/public", response_model=list[TopicOut])
-def list_topics_public(db: DbDep):
-    """Public endpoint — list all topics."""
-    return db.scalars(select(Topic).order_by(Topic.sort_order, Topic.name)).all()
+@router.get("/goals/public", response_model=list[GoalOut])
+def list_goals_public(db: DbDep):
+    """Public endpoint — list all goals."""
+    return db.scalars(select(Goal).order_by(Goal.sort_order, Goal.name)).all()
 
 
-@router.get("/topics/public/grade/{grade}", response_model=list[TopicWithAssets])
-def list_topics_by_grade(grade: int, db: DbDep):
-    """Public — return topics for a grade with their published content assets."""
-    import re as _re
-
+@router.get("/goals/public/grade/{grade}", response_model=list[GoalWithTopics])
+def list_goals_by_grade(grade: int, db: DbDep):
+    """Public — return goals for a grade with their published topics and content assets."""
     stmt = (
-        select(Topic)
-        .options(selectinload(Topic.content_assets).selectinload(ContentAsset.asset_type))
-        .order_by(Topic.sort_order, Topic.name)
+        select(Goal)
+        .options(
+            selectinload(Goal.content_assets).selectinload(ContentAsset.asset_type),
+            selectinload(Goal.topics),
+        )
+        .order_by(Goal.sort_order, Goal.name)
     )
-    topics = db.scalars(stmt).all()
+    goals = db.scalars(stmt).all()
 
     grade_str = str(grade)
     result = []
-    for topic in topics:
-        grades = [g.strip() for g in (topic.suggested_grades or "").split(",") if g.strip()]
+    for goal in goals:
+        grades = [g.strip() for g in (goal.suggested_grades or "").split(",") if g.strip()]
         if grade_str not in grades:
             continue
-        # Filter to published assets only
-        topic.content_assets = [a for a in topic.content_assets if a.status == "published"]
-        result.append(topic)
+        # Filter to published assets and topics only
+        goal.content_assets = [a for a in goal.content_assets if a.status == "published"]
+        goal.topics = [t for t in goal.topics if t.status == "published"]
+        result.append(goal)
     return result
 
 
-@router.get("/topics/public/slug/{slug}", response_model=TopicWithAssets)
-def get_topic_by_slug(slug: str, db: DbDep):
-    """Public — return a single topic by slug with published content assets."""
+@router.get("/goals/public/slug/{slug}", response_model=GoalWithTopics)
+def get_goal_by_slug(slug: str, db: DbDep):
+    """Public — return a single goal by slug with published topics and content assets."""
     stmt = (
-        select(Topic)
-        .where(Topic.slug == slug)
-        .options(selectinload(Topic.content_assets).selectinload(ContentAsset.asset_type))
+        select(Goal)
+        .where(Goal.slug == slug)
+        .options(
+            selectinload(Goal.content_assets).selectinload(ContentAsset.asset_type),
+            selectinload(Goal.topics),
+        )
     )
-    topic = db.scalar(stmt)
-    if not topic:
-        raise HTTPException(status_code=404, detail="Topic not found")
-    topic.content_assets = [a for a in topic.content_assets if a.status == "published"]
-    return topic
+    goal = db.scalar(stmt)
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    goal.content_assets = [a for a in goal.content_assets if a.status == "published"]
+    goal.topics = [t for t in goal.topics if t.status == "published"]
+    return goal
 
 
-@router.post("/topics", response_model=TopicOut, status_code=status.HTTP_201_CREATED)
-def create_topic(body: TopicCreate, _admin: AdminDep, db: DbDep):
+@router.post("/goals", response_model=GoalOut, status_code=status.HTTP_201_CREATED)
+def create_goal(body: GoalCreate, _admin: AdminDep, db: DbDep):
     import re as _re
 
-    existing = db.scalar(select(Topic).where(Topic.name == body.name))
+    existing = db.scalar(select(Goal).where(Goal.name == body.name))
     if existing:
-        raise HTTPException(status_code=409, detail="Topic with this name already exists")
+        raise HTTPException(status_code=409, detail="Goal with this name already exists")
     data = body.model_dump()
     # Auto-generate slug if not provided
     if not data.get("slug"):
         data["slug"] = _re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-")
     # Check slug uniqueness
+    if db.scalar(select(Goal).where(Goal.slug == data["slug"])):
+        raise HTTPException(status_code=409, detail="Goal with this slug already exists")
+    obj = Goal(**data)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    obj = db.query(Goal).options(selectinload(Goal.children)).filter(Goal.id == obj.id).one()
+    return obj
+
+
+@router.patch("/goals/{goal_id}", response_model=GoalOut)
+def update_goal(goal_id: uuid.UUID, body: GoalUpdate, _admin: AdminDep, db: DbDep):
+    obj = db.get(Goal, goal_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(obj, k, v)
+    db.commit()
+    obj = db.query(Goal).options(selectinload(Goal.children)).filter(Goal.id == obj.id).one()
+    return obj
+
+
+@router.delete("/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_goal(goal_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    obj = db.get(Goal, goal_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    db.delete(obj)
+    db.commit()
+
+
+# ── Topics (content-rich pages) ──────────────────────────────────────────────
+
+def _load_topic_detail(db: DbDep, topic_id: uuid.UUID) -> Topic:
+    stmt = (
+        select(Topic)
+        .where(Topic.id == topic_id)
+        .options(
+            selectinload(Topic.goal),
+            selectinload(Topic.faqs),
+            selectinload(Topic.resources).selectinload(ContentAsset.asset_type),
+        )
+    )
+    obj = db.scalar(stmt)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return obj
+
+
+@router.get("/topics", response_model=TopicListResponse)
+def list_topics(
+    db: DbDep,
+    _admin: AdminDep,
+    search: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    goal_id: Annotated[uuid.UUID | None, Query()] = None,
+    sort_by: Annotated[str, Query()] = "created_at",
+    sort_dir: Annotated[str, Query()] = "desc",
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    """Admin: list all topics with pagination and filters."""
+    stmt = select(Topic).options(selectinload(Topic.goal))
+
+    if search:
+        stmt = stmt.where(Topic.title.ilike(f"%{search}%"))
+    if status:
+        stmt = stmt.where(Topic.status == status)
+    if goal_id:
+        stmt = stmt.where(Topic.goal_id == goal_id)
+
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = db.scalar(count_stmt)
+
+    sort_col = getattr(Topic, sort_by, Topic.created_at)
+    if sort_dir == "desc":
+        stmt = stmt.order_by(sort_col.desc())
+    else:
+        stmt = stmt.order_by(sort_col.asc())
+
+    items = db.scalars(stmt.offset(skip).limit(limit)).all()
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+
+@router.get("/topics/{topic_id}", response_model=TopicDetail)
+def get_topic(topic_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    return _load_topic_detail(db, topic_id)
+
+
+@router.post("/topics", response_model=TopicDetail, status_code=status.HTTP_201_CREATED)
+def create_topic(body: TopicCreate, _admin: AdminDep, db: DbDep):
+    import re as _re
+
+    data = body.model_dump()
+    # Auto-generate slug if not provided
+    if not data.get("slug"):
+        data["slug"] = _re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")
+    # Check slug uniqueness
     if db.scalar(select(Topic).where(Topic.slug == data["slug"])):
         raise HTTPException(status_code=409, detail="Topic with this slug already exists")
+    if data.get("action_items") is None:
+        data["action_items"] = []
     obj = Topic(**data)
     db.add(obj)
     db.commit()
     db.refresh(obj)
-    obj = db.query(Topic).options(selectinload(Topic.children)).filter(Topic.id == obj.id).one()
-    return obj
+    return _load_topic_detail(db, obj.id)
 
 
-@router.patch("/topics/{topic_id}", response_model=TopicOut)
+@router.patch("/topics/{topic_id}", response_model=TopicDetail)
 def update_topic(topic_id: uuid.UUID, body: TopicUpdate, _admin: AdminDep, db: DbDep):
     obj = db.get(Topic, topic_id)
     if not obj:
@@ -201,8 +316,7 @@ def update_topic(topic_id: uuid.UUID, body: TopicUpdate, _admin: AdminDep, db: D
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(obj, k, v)
     db.commit()
-    obj = db.query(Topic).options(selectinload(Topic.children)).filter(Topic.id == obj.id).one()
-    return obj
+    return _load_topic_detail(db, topic_id)
 
 
 @router.delete("/topics/{topic_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -212,6 +326,99 @@ def delete_topic(topic_id: uuid.UUID, _admin: AdminDep, db: DbDep):
         raise HTTPException(status_code=404, detail="Topic not found")
     db.delete(obj)
     db.commit()
+
+
+@router.patch("/topics/{topic_id}/publish", response_model=TopicDetail)
+def publish_topic(topic_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    obj = db.get(Topic, topic_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    obj.status = "published"
+    db.commit()
+    return _load_topic_detail(db, topic_id)
+
+
+@router.patch("/topics/{topic_id}/unpublish", response_model=TopicDetail)
+def unpublish_topic(topic_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    obj = db.get(Topic, topic_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    obj.status = "draft"
+    db.commit()
+    return _load_topic_detail(db, topic_id)
+
+
+@router.post("/topics/{topic_id}/image", response_model=TopicDetail)
+async def upload_topic_image(topic_id: uuid.UUID, file: UploadFile, _admin: AdminDep, db: DbDep):
+    obj = db.get(Topic, topic_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp"}
+    ext = ext_map.get(file.content_type, "bin")
+    s3_key = f"assets/topics/{topic_id}/image.{ext}"
+
+    data = await file.read()
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        region_name=settings.aws_region,
+    )
+    s3.put_object(
+        Bucket=settings.s3_bucket_name,
+        Key=s3_key,
+        Body=data,
+        ContentType=file.content_type,
+    )
+    obj.image_url = f"https://{settings.s3_bucket_name}.s3.{settings.aws_region}.amazonaws.com/{s3_key}"
+    db.commit()
+    return _load_topic_detail(db, topic_id)
+
+
+@router.put("/topics/{topic_id}/faqs", response_model=TopicDetail)
+def update_topic_faqs(topic_id: uuid.UUID, body: FaqsUpdate, _admin: AdminDep, db: DbDep):
+    obj = db.get(Topic, topic_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    db.query(TopicFaq).filter_by(topic_id=topic_id).delete()
+    for item in body.items:
+        db.add(TopicFaq(topic_id=topic_id, faq_id=item.faq_id, sort_order=item.sort_order))
+    db.commit()
+    return _load_topic_detail(db, topic_id)
+
+
+@router.put("/topics/{topic_id}/resources", response_model=TopicDetail)
+def update_topic_resources(topic_id: uuid.UUID, body: TopicResourcesUpdate, _admin: AdminDep, db: DbDep):
+    obj = db.get(Topic, topic_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    db.query(TopicResource).filter_by(topic_id=topic_id).delete()
+    for item in body.items:
+        db.add(TopicResource(topic_id=topic_id, content_asset_id=item.content_asset_id, sort_order=item.sort_order))
+    db.commit()
+    return _load_topic_detail(db, topic_id)
+
+
+@router.get("/topics/public/slug/{slug}", response_model=TopicDetail)
+def get_topic_by_slug_public(slug: str, db: DbDep):
+    """Public — return a single topic by slug (published only)."""
+    stmt = (
+        select(Topic)
+        .where(Topic.slug == slug, Topic.status == "published")
+        .options(
+            selectinload(Topic.goal),
+            selectinload(Topic.faqs),
+            selectinload(Topic.resources).selectinload(ContentAsset.asset_type),
+        )
+    )
+    topic = db.scalar(stmt)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return topic
 
 
 # ── Objectives ────────────────────────────────────────────────────────────────
@@ -266,7 +473,7 @@ def _load_asset_detail(db: DbDep, asset_id: uuid.UUID) -> ContentAsset:
         .options(
             selectinload(ContentAsset.asset_type),
             selectinload(ContentAsset.objectives),
-            selectinload(ContentAsset.topics),
+            selectinload(ContentAsset.goals),
             selectinload(ContentAsset.workshops),
             selectinload(ContentAsset.cohorts),
             selectinload(ContentAsset.faqs),
@@ -280,19 +487,19 @@ def _load_asset_detail(db: DbDep, asset_id: uuid.UUID) -> ContentAsset:
 
 
 def _resolve_resources(db: DbDep, asset: ContentAsset) -> list[ContentAsset]:
-    """Return hand-picked resources or auto-fallback by shared objectives/topics."""
+    """Return hand-picked resources or auto-fallback by shared objectives/goals."""
     if asset.resources:
         return list(asset.resources)
 
     obj_ids = [o.id for o in asset.objectives]
-    topic_ids = [t.id for t in asset.topics]
-    if not obj_ids and not topic_ids:
+    goal_ids = [g.id for g in asset.goals]
+    if not obj_ids and not goal_ids:
         return []
 
-    from src.content.models import ContentAssetObjective as CAO, ContentAssetTopic as CAT
+    from src.content.models import ContentAssetObjective as CAO, ContentAssetGoal as CAG
 
     subq_obj = select(CAO.content_asset_id).where(CAO.objective_id.in_(obj_ids))
-    subq_top = select(CAT.content_asset_id).where(CAT.topic_id.in_(topic_ids))
+    subq_goal = select(CAG.content_asset_id).where(CAG.goal_id.in_(goal_ids))
     stmt = (
         select(ContentAsset)
         .options(selectinload(ContentAsset.asset_type))
@@ -301,7 +508,7 @@ def _resolve_resources(db: DbDep, asset: ContentAsset) -> list[ContentAsset]:
             ContentAsset.id != asset.id,
             or_(
                 ContentAsset.id.in_(subq_obj),
-                ContentAsset.id.in_(subq_top),
+                ContentAsset.id.in_(subq_goal),
             ),
         )
         .limit(6)
@@ -316,7 +523,7 @@ def list_assets(
     status: Annotated[str | None, Query()] = None,
     asset_type_id: Annotated[uuid.UUID | None, Query()] = None,
     objective_id: Annotated[uuid.UUID | None, Query()] = None,
-    topic_id: Annotated[uuid.UUID | None, Query()] = None,
+    goal_id: Annotated[uuid.UUID | None, Query()] = None,
     cohort_id: Annotated[uuid.UUID | None, Query()] = None,
     is_featured: Annotated[bool | None, Query()] = None,
     sort_by: Annotated[str, Query()] = "created_at",
@@ -336,8 +543,8 @@ def list_assets(
         stmt = stmt.where(ContentAsset.is_featured == is_featured)
     if objective_id:
         stmt = stmt.join(ContentAssetObjective).where(ContentAssetObjective.objective_id == objective_id)
-    if topic_id:
-        stmt = stmt.join(ContentAssetTopic).where(ContentAssetTopic.topic_id == topic_id)
+    if goal_id:
+        stmt = stmt.join(ContentAssetGoal).where(ContentAssetGoal.goal_id == goal_id)
     if cohort_id:
         stmt = stmt.join(ContentAssetCohort).where(ContentAssetCohort.cohort_id == cohort_id)
 
@@ -373,8 +580,8 @@ def list_assets_public(
     asset_type_ids: Annotated[str | None, Query()] = None,
     objective_id: Annotated[uuid.UUID | None, Query()] = None,
     objective_ids: Annotated[str | None, Query()] = None,
-    topic_id: Annotated[uuid.UUID | None, Query()] = None,
-    topic_ids: Annotated[str | None, Query()] = None,
+    goal_id: Annotated[uuid.UUID | None, Query()] = None,
+    goal_ids: Annotated[str | None, Query()] = None,
     cohort_id: Annotated[uuid.UUID | None, Query()] = None,
     is_featured: Annotated[bool | None, Query()] = None,
     sort_by: Annotated[str, Query()] = "created_at",
@@ -382,15 +589,7 @@ def list_assets_public(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ):
-    """Public endpoint — only returns published assets.
-
-    Supports multi-value filtering via comma-separated ID params
-    (e.g. ``objective_ids=id1,id2``).  Single-value params are kept
-    for backward compatibility.
-    """
-    # Fuzzy search uses pg_trgm word_similarity() on name and description.
-    # Name matches are weighted 2x higher than description matches so that
-    # assets *about* the search term rank above those that merely mention it.
+    """Public endpoint — only returns published assets."""
     _NAME_THRESHOLD = 0.3
     _DESC_THRESHOLD = 0.4
 
@@ -408,7 +607,6 @@ def list_assets_public(
             literal(search),
             func.coalesce(ContentAsset.description, literal("")),
         )
-        # Filter: must have a meaningful match in name OR description
         stmt = stmt.where(
             or_(
                 name_sim > _NAME_THRESHOLD,
@@ -434,12 +632,12 @@ def list_assets_public(
     elif objective_id:
         stmt = stmt.join(ContentAssetObjective).where(ContentAssetObjective.objective_id == objective_id)
 
-    # Topic filtering (single or multi)
-    t_ids = _parse_csv_uuids(topic_ids)
-    if t_ids:
-        stmt = stmt.join(ContentAssetTopic).where(ContentAssetTopic.topic_id.in_(t_ids))
-    elif topic_id:
-        stmt = stmt.join(ContentAssetTopic).where(ContentAssetTopic.topic_id == topic_id)
+    # Goal filtering (single or multi)
+    g_ids = _parse_csv_uuids(goal_ids)
+    if g_ids:
+        stmt = stmt.join(ContentAssetGoal).where(ContentAssetGoal.goal_id.in_(g_ids))
+    elif goal_id:
+        stmt = stmt.join(ContentAssetGoal).where(ContentAssetGoal.goal_id == goal_id)
 
     if cohort_id:
         stmt = stmt.join(ContentAssetCohort).where(ContentAssetCohort.cohort_id == cohort_id)
@@ -447,8 +645,6 @@ def list_assets_public(
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = db.scalar(count_stmt)
 
-    # When searching, order by relevance — name matches weighted 2x.
-    # Otherwise honour the caller's sort preference.
     if has_search:
         name_sim = func.word_similarity(literal(search), ContentAsset.name)
         desc_sim = func.word_similarity(
@@ -580,14 +776,14 @@ def update_asset_objectives(asset_id: uuid.UUID, body: RelationshipsUpdate, _adm
     return _load_asset_detail(db, asset_id)
 
 
-@router.put("/assets/{asset_id}/topics", response_model=ContentAssetDetail)
-def update_asset_topics(asset_id: uuid.UUID, body: RelationshipsUpdate, _admin: AdminDep, db: DbDep):
+@router.put("/assets/{asset_id}/goals", response_model=ContentAssetDetail)
+def update_asset_goals(asset_id: uuid.UUID, body: RelationshipsUpdate, _admin: AdminDep, db: DbDep):
     obj = db.get(ContentAsset, asset_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Content asset not found")
-    db.query(ContentAssetTopic).filter_by(content_asset_id=asset_id).delete()
-    for tid in body.ids:
-        db.add(ContentAssetTopic(content_asset_id=asset_id, topic_id=tid))
+    db.query(ContentAssetGoal).filter_by(content_asset_id=asset_id).delete()
+    for gid in body.ids:
+        db.add(ContentAssetGoal(content_asset_id=asset_id, goal_id=gid))
     db.commit()
     return _load_asset_detail(db, asset_id)
 
@@ -726,22 +922,26 @@ def update_question_status(
 
 
 def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
-    """Build a GradeConfigOut with topics and their published assets."""
-    topics_with_assets = []
-    for topic in gc.topics:
-        published = [
-            a for a in topic.content_assets if a.status == "published"
+    """Build a GradeConfigOut with goals and their published topics/assets."""
+    goals_with_topics = []
+    for goal in gc.goals:
+        published_assets = [
+            a for a in goal.content_assets if a.status == "published"
         ]
-        topics_with_assets.append(
-            TopicWithAssets(
-                id=topic.id,
-                name=topic.name,
-                description=topic.description,
-                icon_url=topic.icon_url,
-                slug=topic.slug,
-                suggested_grades=topic.suggested_grades,
-                sort_order=topic.sort_order,
-                content_assets=[ContentAssetSummary.model_validate(a) for a in published],
+        published_topics = [
+            t for t in goal.topics if t.status == "published"
+        ]
+        goals_with_topics.append(
+            GoalWithTopics(
+                id=goal.id,
+                name=goal.name,
+                description=goal.description,
+                icon_url=goal.icon_url,
+                slug=goal.slug,
+                suggested_grades=goal.suggested_grades,
+                sort_order=goal.sort_order,
+                topics=[TopicSummary.model_validate(t) for t in published_topics],
+                content_assets=[ContentAssetSummary.model_validate(a) for a in published_assets],
             )
         )
     return GradeConfigOut(
@@ -756,24 +956,26 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
         page_description=gc.page_description,
         banner_image_url=gc.banner_image_url,
         sort_order=gc.sort_order,
-        topics=topics_with_assets,
+        goals=goals_with_topics,
         created_at=gc.created_at,
     )
 
 
 @router.get("/grade-configs/public", response_model=list[GradeConfigOut])
 def list_grade_configs_public(db: DbDep):
-    """Public: list all grade configs with their topics and published assets."""
+    """Public: list all grade configs with their goals and published assets/topics."""
     configs = db.execute(
         select(GradeConfig)
-        .outerjoin(GradeConfigTopic, GradeConfig.id == GradeConfigTopic.grade_config_id)
-        .outerjoin(Topic, GradeConfigTopic.topic_id == Topic.id)
+        .outerjoin(GradeConfigGoal, GradeConfig.id == GradeConfigGoal.grade_config_id)
+        .outerjoin(Goal, GradeConfigGoal.goal_id == Goal.id)
         .options(
-            contains_eager(GradeConfig.topics)
-            .selectinload(Topic.content_assets)
+            contains_eager(GradeConfig.goals)
+            .selectinload(Goal.content_assets)
             .selectinload(ContentAsset.asset_type),
+            contains_eager(GradeConfig.goals)
+            .selectinload(Goal.topics),
         )
-        .order_by(GradeConfig.grade, GradeConfigTopic.sort_order)
+        .order_by(GradeConfig.grade, GradeConfigGoal.sort_order)
     ).unique().scalars().all()
     return [_load_grade_config(db, gc) for gc in configs]
 
@@ -788,10 +990,10 @@ def get_grade_config_by_grade(grade: int, db: DbDep):
 
 @router.get("/grade-configs", response_model=list[GradeConfigSummary])
 def list_grade_configs(_admin: AdminDep, db: DbDep):
-    """Admin: list all grade configs (lightweight, with topic IDs only)."""
+    """Admin: list all grade configs (lightweight, with goal IDs only)."""
     configs = (
         db.query(GradeConfig)
-        .options(selectinload(GradeConfig.topics))
+        .options(selectinload(GradeConfig.goals))
         .order_by(GradeConfig.grade)
         .all()
     )
@@ -807,7 +1009,7 @@ def list_grade_configs(_admin: AdminDep, db: DbDep):
                 icon=gc.icon,
                 bg_color=gc.bg_color,
                 sort_order=gc.sort_order,
-                topic_ids=[t.id for t in gc.topics],
+                goal_ids=[g.id for g in gc.goals],
             )
         )
     return results
@@ -827,7 +1029,7 @@ def create_grade_config(body: GradeConfigCreate, _admin: AdminDep, db: DbDep):
         id=gc.id, grade=gc.grade, label=gc.label,
         description=gc.description, video_overview_url=gc.video_overview_url,
         icon=gc.icon, bg_color=gc.bg_color, sort_order=gc.sort_order,
-        topic_ids=[],
+        goal_ids=[],
     )
 
 
@@ -843,12 +1045,12 @@ def update_grade_config(
         setattr(gc, field, value)
     db.commit()
     db.refresh(gc)
-    gc = db.query(GradeConfig).options(selectinload(GradeConfig.topics)).filter(GradeConfig.id == gc.id).one()
+    gc = db.query(GradeConfig).options(selectinload(GradeConfig.goals)).filter(GradeConfig.id == gc.id).one()
     return GradeConfigSummary(
         id=gc.id, grade=gc.grade, label=gc.label,
         description=gc.description, video_overview_url=gc.video_overview_url,
         icon=gc.icon, bg_color=gc.bg_color, sort_order=gc.sort_order,
-        topic_ids=[t.id for t in gc.topics],
+        goal_ids=[g.id for g in gc.goals],
     )
 
 
@@ -862,38 +1064,38 @@ def delete_grade_config(grade_config_id: uuid.UUID, _admin: AdminDep, db: DbDep)
     db.commit()
 
 
-@router.put("/grade-configs/{grade_config_id}/topics", response_model=GradeConfigSummary)
-def update_grade_config_topics(
-    grade_config_id: uuid.UUID, body: GradeConfigTopicsUpdate, _admin: AdminDep, db: DbDep
+@router.put("/grade-configs/{grade_config_id}/goals", response_model=GradeConfigSummary)
+def update_grade_config_goals(
+    grade_config_id: uuid.UUID, body: GradeConfigGoalsUpdate, _admin: AdminDep, db: DbDep
 ):
-    """Admin: replace the topics assigned to a grade config. Only top-level topics allowed."""
+    """Admin: replace the goals assigned to a grade config. Only top-level goals allowed."""
     gc = db.get(GradeConfig, grade_config_id)
     if not gc:
         raise HTTPException(status_code=404, detail="Grade config not found")
 
-    # Validate: only top-level topics (no parent) can be assigned to grades
-    if body.topic_ids:
-        sub_topics = (
-            db.query(Topic)
-            .filter(Topic.id.in_(body.topic_ids), Topic.parent_id.isnot(None))
+    # Validate: only top-level goals (no parent) can be assigned to grades
+    if body.goal_ids:
+        sub_goals = (
+            db.query(Goal)
+            .filter(Goal.id.in_(body.goal_ids), Goal.parent_id.isnot(None))
             .all()
         )
-        if sub_topics:
-            names = ", ".join(t.name for t in sub_topics)
-            raise HTTPException(status_code=400, detail=f"Only top-level topics can be assigned to grades. Sub-topics found: {names}")
+        if sub_goals:
+            names = ", ".join(g.name for g in sub_goals)
+            raise HTTPException(status_code=400, detail=f"Only top-level goals can be assigned to grades. Sub-goals found: {names}")
 
     # Clear existing
-    db.query(GradeConfigTopic).filter(GradeConfigTopic.grade_config_id == grade_config_id).delete()
+    db.query(GradeConfigGoal).filter(GradeConfigGoal.grade_config_id == grade_config_id).delete()
 
     # Insert new with sort order
-    for i, topic_id in enumerate(body.topic_ids):
-        db.add(GradeConfigTopic(grade_config_id=grade_config_id, topic_id=topic_id, sort_order=i))
+    for i, goal_id in enumerate(body.goal_ids):
+        db.add(GradeConfigGoal(grade_config_id=grade_config_id, goal_id=goal_id, sort_order=i))
     db.commit()
 
-    gc = db.query(GradeConfig).options(selectinload(GradeConfig.topics)).filter(GradeConfig.id == gc.id).one()
+    gc = db.query(GradeConfig).options(selectinload(GradeConfig.goals)).filter(GradeConfig.id == gc.id).one()
     return GradeConfigSummary(
         id=gc.id, grade=gc.grade, label=gc.label,
         description=gc.description, video_overview_url=gc.video_overview_url,
         icon=gc.icon, bg_color=gc.bg_color, sort_order=gc.sort_order,
-        topic_ids=[t.id for t in gc.topics],
+        goal_ids=[g.id for g in gc.goals],
     )

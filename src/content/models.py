@@ -26,12 +26,12 @@ class AssetType(Base):
     content_assets: Mapped[list[ContentAsset]] = relationship(back_populates="asset_type")
 
 
-class Topic(Base):
-    __tablename__ = "topics"
+class Goal(Base):
+    __tablename__ = "goals"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     airtable_id: Mapped[str | None] = mapped_column(Text, unique=True)
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("topics.id", ondelete="SET NULL"))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("goals.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text)
     icon_url: Mapped[str | None] = mapped_column(Text)
@@ -40,18 +40,61 @@ class Topic(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    parent: Mapped[Topic | None] = relationship("Topic", remote_side="Topic.id", foreign_keys=[parent_id])
-    children: Mapped[list[Topic]] = relationship("Topic", foreign_keys=[parent_id], order_by="Topic.sort_order")
+    parent: Mapped[Goal | None] = relationship("Goal", remote_side="Goal.id", foreign_keys=[parent_id])
+    children: Mapped[list[Goal]] = relationship("Goal", foreign_keys=[parent_id], order_by="Goal.sort_order")
 
     content_assets: Mapped[list[ContentAsset]] = relationship(
-        secondary="content_asset_topics",
-        back_populates="topics",
-        order_by="ContentAssetTopic.sort_order",
+        secondary="content_asset_goals",
+        back_populates="goals",
+        order_by="ContentAssetGoal.sort_order",
+        viewonly=True,
+    )
+
+    topics: Mapped[list[Topic]] = relationship(
+        back_populates="goal",
+        order_by="Topic.sort_order",
+    )
+
+    __table_args__ = (
+        Index("idx_goals_parent_id", "parent_id"),
+    )
+
+
+class Topic(Base):
+    """Content-rich topic page — like a ContentAsset but with its own entity."""
+    __tablename__ = "topics"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)  # rich HTML for "What You'll Learn"
+    content: Mapped[str | None] = mapped_column(Text)  # sanitized HTML, edited via Tiptap
+    action_items: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    video_embed_code: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default="draft")
+    goal_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("goals.id", ondelete="SET NULL"))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    goal: Mapped[Goal | None] = relationship(back_populates="topics")
+
+    faqs: Mapped[list[Faq]] = relationship(
+        secondary="topic_faqs",
+        order_by="TopicFaq.sort_order",
+        viewonly=True,
+    )
+    resources: Mapped[list[ContentAsset]] = relationship(
+        secondary="topic_resources",
+        order_by="TopicResource.sort_order",
         viewonly=True,
     )
 
     __table_args__ = (
-        Index("idx_topics_parent_id", "parent_id"),
+        Index("idx_topics_slug", "slug"),
+        Index("idx_topics_status", "status"),
+        Index("idx_topics_goal_id", "goal_id"),
     )
 
 
@@ -95,8 +138,8 @@ class ContentAsset(Base):
     objectives: Mapped[list[Objective]] = relationship(
         secondary="content_asset_objectives", back_populates="content_assets"
     )
-    topics: Mapped[list[Topic]] = relationship(
-        secondary="content_asset_topics", back_populates="content_assets"
+    goals: Mapped[list[Goal]] = relationship(
+        secondary="content_asset_goals", back_populates="content_assets"
     )
     workshops = relationship("Workshop", secondary="content_asset_workshops", back_populates="content_assets")
     cohorts = relationship("Cohort", secondary="content_asset_cohorts", back_populates="content_assets")
@@ -156,14 +199,14 @@ class ContentAssetWorkshop(Base):
     )
 
 
-class ContentAssetTopic(Base):
-    __tablename__ = "content_asset_topics"
+class ContentAssetGoal(Base):
+    __tablename__ = "content_asset_goals"
 
     content_asset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("content_assets.id", ondelete="CASCADE"), primary_key=True
     )
-    topic_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("goals.id", ondelete="CASCADE"), primary_key=True
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
@@ -202,6 +245,30 @@ class ContentAssetFaq(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
+class TopicFaq(Base):
+    __tablename__ = "topic_faqs"
+
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    )
+    faq_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("faqs.id", ondelete="CASCADE"), primary_key=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
+class TopicResource(Base):
+    __tablename__ = "topic_resources"
+
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_asset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("content_assets.id", ondelete="CASCADE"), primary_key=True
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
 class ContentAssetResource(Base):
     __tablename__ = "content_asset_resources"
 
@@ -233,22 +300,22 @@ class GradeConfig(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    topics: Mapped[list[Topic]] = relationship(
-        secondary="grade_config_topics",
-        order_by="GradeConfigTopic.sort_order",
+    goals: Mapped[list[Goal]] = relationship(
+        secondary="grade_config_goals",
+        order_by="GradeConfigGoal.sort_order",
         viewonly=True,
     )
 
 
-class GradeConfigTopic(Base):
-    """Join table linking a grade config to selected topics."""
-    __tablename__ = "grade_config_topics"
+class GradeConfigGoal(Base):
+    """Join table linking a grade config to selected goals."""
+    __tablename__ = "grade_config_goals"
 
     grade_config_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("grade_configs.id", ondelete="CASCADE"), primary_key=True
     )
-    topic_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("goals.id", ondelete="CASCADE"), primary_key=True
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
