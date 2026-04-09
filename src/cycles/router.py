@@ -8,14 +8,20 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from src.auth.deps import AdminDep, CurrentUserDep
-from src.cycles.models import Cohort
-from src.cycles.schemas import CohortCreate, CohortOut, CohortUpdate, CohortWithSchools, CohortWithSchoolsResponse
+from src.cycles.models import Cohort, Cycle
+from src.cycles.schemas import CohortCreate, CohortOut, CohortUpdate, CohortWithSchools, CohortWithSchoolsResponse, CycleOut
 from src.db.deps import DbDep
 from src.schools.models import School
 from src.schools.router import _build_order_by
 from src.schools.schemas import SchoolListItem
 
 router = APIRouter(prefix="/api/v1/cohorts", tags=["cohorts"])
+
+
+@router.get("/cycles", response_model=list[CycleOut])
+def list_cycles(db: DbDep, _user: CurrentUserDep) -> list[CycleOut]:
+    """List all cycles."""
+    return db.query(Cycle).order_by(Cycle.name).all()
 
 
 @router.get("/schools", response_model=CohortWithSchoolsResponse)

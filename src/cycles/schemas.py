@@ -39,3 +39,13 @@ class CohortWithSchoolsResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class CycleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    beginning_date: datetime | None = None
+    end_date: datetime | None = None
+    is_current: bool = False

@@ -281,6 +281,9 @@ class GradeConfigOut(BaseModel):
     video_overview_url: str | None
     icon: str | None
     bg_color: str | None
+    page_title: str | None = None
+    page_description: str | None = None
+    banner_image_url: str | None = None
     sort_order: int
     topics: list[TopicWithAssets]
     created_at: datetime
@@ -297,6 +300,9 @@ class GradeConfigSummary(BaseModel):
     video_overview_url: str | None
     icon: str | None
     bg_color: str | None
+    page_title: str | None = None
+    page_description: str | None = None
+    banner_image_url: str | None = None
     sort_order: int
     topic_ids: list[uuid.UUID]
 
@@ -310,6 +316,9 @@ class GradeConfigCreate(BaseModel):
     video_overview_url: str | None = None
     icon: str | None = None
     bg_color: str | None = None
+    page_title: str | None = None
+    page_description: str | None = None
+    banner_image_url: str | None = None
     sort_order: int = 0
 
 
@@ -319,6 +328,9 @@ class GradeConfigUpdate(BaseModel):
     video_overview_url: str | None = None
     icon: str | None = None
     bg_color: str | None = None
+    page_title: str | None = None
+    page_description: str | None = None
+    banner_image_url: str | None = None
     sort_order: int | None = None
 
 

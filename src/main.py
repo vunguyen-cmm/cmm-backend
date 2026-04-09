@@ -30,6 +30,7 @@ from src.db import get_supabase
 from src.schools.router import router as schools_router
 from src.workshops.router import router as workshops_router
 from src.guest_contacts.router import router as guest_contacts_router
+from src.storage.router import router as storage_router
 
 
 @asynccontextmanager
@@ -61,6 +62,7 @@ app.include_router(cohorts_router)
 app.include_router(content_router)
 app.include_router(workshops_router)
 app.include_router(guest_contacts_router)
+app.include_router(storage_router)
 
 
 @app.get("/health")

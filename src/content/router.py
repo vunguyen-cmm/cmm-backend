@@ -10,7 +10,7 @@ import boto3
 import requests
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from sqlalchemy import case, func, literal, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import contains_eager, selectinload
 
 from src.auth.deps import AdminDep
 from src.content.models import (
@@ -752,6 +752,9 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
         video_overview_url=gc.video_overview_url,
         icon=gc.icon,
         bg_color=gc.bg_color,
+        page_title=gc.page_title,
+        page_description=gc.page_description,
+        banner_image_url=gc.banner_image_url,
         sort_order=gc.sort_order,
         topics=topics_with_assets,
         created_at=gc.created_at,
@@ -761,14 +764,17 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
 @router.get("/grade-configs/public", response_model=list[GradeConfigOut])
 def list_grade_configs_public(db: DbDep):
     """Public: list all grade configs with their topics and published assets."""
-    configs = (
-        db.query(GradeConfig)
+    configs = db.execute(
+        select(GradeConfig)
+        .outerjoin(GradeConfigTopic, GradeConfig.id == GradeConfigTopic.grade_config_id)
+        .outerjoin(Topic, GradeConfigTopic.topic_id == Topic.id)
         .options(
-            selectinload(GradeConfig.topics).selectinload(Topic.content_assets).selectinload(ContentAsset.asset_type),
+            contains_eager(GradeConfig.topics)
+            .selectinload(Topic.content_assets)
+            .selectinload(ContentAsset.asset_type),
         )
-        .order_by(GradeConfig.grade)
-        .all()
-    )
+        .order_by(GradeConfig.grade, GradeConfigTopic.sort_order)
+    ).unique().scalars().all()
     return [_load_grade_config(db, gc) for gc in configs]
 
 
