@@ -777,6 +777,14 @@ def list_grade_configs_public(db: DbDep):
     ).unique().scalars().all()
     return [_load_grade_config(db, gc) for gc in configs]
 
+@router.get("/grade-configs/public/{grade}", response_model=GradeConfigOut)
+def get_grade_config_by_grade(grade: int, db: DbDep):
+    """Public: get a grade config by its grade."""
+    gc = db.query(GradeConfig).filter(GradeConfig.grade == grade).one_or_none()
+    if not gc:
+        raise HTTPException(status_code=404, detail="Grade config not found")
+    return _load_grade_config(db, gc)
+
 
 @router.get("/grade-configs", response_model=list[GradeConfigSummary])
 def list_grade_configs(_admin: AdminDep, db: DbDep):
