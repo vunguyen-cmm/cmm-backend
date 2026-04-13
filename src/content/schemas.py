@@ -234,6 +234,7 @@ class ObjectiveUpdate(BaseModel):
 class ContentAssetListItem(BaseModel):
     id: uuid.UUID
     name: str
+    description: str | None
     status: str
     is_featured: bool
     image_url: str | None
@@ -264,6 +265,7 @@ class ContentAssetDetail(BaseModel):
     asset_type: AssetTypeOut | None
     objectives: list[ObjectiveOut]
     goals: list[GoalOut]
+    topics: list[TopicListItem]
     workshops: list[WorkshopRef]
     cohorts: list[CohortRef]
     faqs: list[FaqOut]
@@ -393,10 +395,34 @@ class TopicResourcesUpdate(BaseModel):
 
 # ── Reader Questions ───────────────────────────────────────────────────────────
 
+# ── Grade Sets ────────────────────────────────────────────────────────────────
+
+
+class GradeSetSummary(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    is_default: bool = False
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class GradeSetCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class GradeSetUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
 # ── Grade Configs ─────────────────────────────────────────────────────────────
 
 class GradeConfigOut(BaseModel):
     id: uuid.UUID
+    grade_set_id: uuid.UUID
     grade: int
     label: str
     description: str | None
@@ -416,6 +442,7 @@ class GradeConfigOut(BaseModel):
 class GradeConfigSummary(BaseModel):
     """Lightweight version without nested goal assets."""
     id: uuid.UUID
+    grade_set_id: uuid.UUID
     grade: int
     label: str
     description: str | None
@@ -432,6 +459,7 @@ class GradeConfigSummary(BaseModel):
 
 
 class GradeConfigCreate(BaseModel):
+    grade_set_id: uuid.UUID
     grade: int
     label: str
     description: str | None = None

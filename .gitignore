@@ -26,3 +26,4 @@ env/
 
 airtable_csv_exports/
 ./airtable_csv_exports/*/**
+.gitnexus

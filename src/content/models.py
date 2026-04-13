@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, Text, Uuid
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, Text, UniqueConstraint, Uuid
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -140,6 +140,13 @@ class ContentAsset(Base):
     )
     goals: Mapped[list[Goal]] = relationship(
         secondary="content_asset_goals", back_populates="content_assets"
+    )
+    topics: Mapped[list[Topic]] = relationship(
+        secondary="topic_resources",
+        primaryjoin="ContentAsset.id == foreign(TopicResource.content_asset_id)",
+        secondaryjoin="Topic.id == foreign(TopicResource.topic_id)",
+        order_by="TopicResource.sort_order",
+        viewonly=True,
     )
     workshops = relationship("Workshop", secondary="content_asset_workshops", back_populates="content_assets")
     cohorts = relationship("Cohort", secondary="content_asset_cohorts", back_populates="content_assets")
@@ -281,25 +288,47 @@ class ContentAssetResource(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
-# ── Grade configs ────────────────────────────────────────────────────────────
+# ── Grade Sets & Grade Configs ──────────────────────────────────────────────
 
-class GradeConfig(Base):
-    """Per-grade configuration for the public topics page (9th–12th)."""
-    __tablename__ = "grade_configs"
+
+class GradeSet(Base):
+    """A named collection of grade configurations (e.g. 'Standard 9th–12th')."""
+    __tablename__ = "grade_sets"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    grade: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)  # 9, 10, 11, 12
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    grade_configs: Mapped[list[GradeConfig]] = relationship(back_populates="grade_set")
+
+
+class GradeConfig(Base):
+    """Per-grade configuration within a grade set."""
+    __tablename__ = "grade_configs"
+    __table_args__ = (
+        UniqueConstraint("grade_set_id", "grade", name="uq_grade_configs_grade_set_grade"),
+        Index("idx_grade_configs_grade_set_id", "grade_set_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    grade_set_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("grade_sets.id", ondelete="RESTRICT"), nullable=False
+    )
+    grade: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)  # e.g. "9th Grade"
     description: Mapped[str | None] = mapped_column(Text)
     video_overview_url: Mapped[str | None] = mapped_column(Text)
     icon: Mapped[str | None] = mapped_column(Text)  # lucide icon name e.g. "BookOpen"
     bg_color: Mapped[str | None] = mapped_column(Text)  # e.g. "rgba(255, 242, 246, 0.6)"
-    page_title: Mapped[str | None] = mapped_column(Text)  # hero heading on the grade detail page
-    page_description: Mapped[str | None] = mapped_column(Text)  # hero subtitle on the grade detail page
-    banner_image_url: Mapped[str | None] = mapped_column(Text)  # hero illustration
+    page_title: Mapped[str | None] = mapped_column(Text)
+    page_description: Mapped[str | None] = mapped_column(Text)
+    banner_image_url: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    grade_set: Mapped[GradeSet] = relationship(back_populates="grade_configs")
     goals: Mapped[list[Goal]] = relationship(
         secondary="grade_config_goals",
         order_by="GradeConfigGoal.sort_order",

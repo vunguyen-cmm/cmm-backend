@@ -26,12 +26,14 @@ from src.content.models import (
     Goal,
     GradeConfig,
     GradeConfigGoal,
+    GradeSet,
     Objective,
     ReaderQuestion,
     Topic,
     TopicFaq,
     TopicResource,
 )
+from src.schools.models import School
 from src.content.schemas import (
     AssetTypeCreate,
     AssetTypeOut,
@@ -55,6 +57,9 @@ from src.content.schemas import (
     GradeConfigOut,
     GradeConfigSummary,
     GradeConfigUpdate,
+    GradeSetCreate,
+    GradeSetSummary,
+    GradeSetUpdate,
     ObjectiveCreate,
     ObjectiveOut,
     ObjectiveUpdate,
@@ -474,6 +479,7 @@ def _load_asset_detail(db: DbDep, asset_id: uuid.UUID) -> ContentAsset:
             selectinload(ContentAsset.asset_type),
             selectinload(ContentAsset.objectives),
             selectinload(ContentAsset.goals),
+            selectinload(ContentAsset.topics).selectinload(Topic.goal),
             selectinload(ContentAsset.workshops),
             selectinload(ContentAsset.cohorts),
             selectinload(ContentAsset.faqs),
@@ -524,6 +530,7 @@ def list_assets(
     asset_type_id: Annotated[uuid.UUID | None, Query()] = None,
     objective_id: Annotated[uuid.UUID | None, Query()] = None,
     goal_id: Annotated[uuid.UUID | None, Query()] = None,
+    topic_id: Annotated[uuid.UUID | None, Query()] = None,
     cohort_id: Annotated[uuid.UUID | None, Query()] = None,
     is_featured: Annotated[bool | None, Query()] = None,
     sort_by: Annotated[str, Query()] = "created_at",
@@ -545,6 +552,8 @@ def list_assets(
         stmt = stmt.join(ContentAssetObjective).where(ContentAssetObjective.objective_id == objective_id)
     if goal_id:
         stmt = stmt.join(ContentAssetGoal).where(ContentAssetGoal.goal_id == goal_id)
+    if topic_id:
+        stmt = stmt.join(TopicResource, TopicResource.content_asset_id == ContentAsset.id).where(TopicResource.topic_id == topic_id)
     if cohort_id:
         stmt = stmt.join(ContentAssetCohort).where(ContentAssetCohort.cohort_id == cohort_id)
 
@@ -582,6 +591,8 @@ def list_assets_public(
     objective_ids: Annotated[str | None, Query()] = None,
     goal_id: Annotated[uuid.UUID | None, Query()] = None,
     goal_ids: Annotated[str | None, Query()] = None,
+    topic_id: Annotated[uuid.UUID | None, Query()] = None,
+    topic_ids: Annotated[str | None, Query()] = None,
     cohort_id: Annotated[uuid.UUID | None, Query()] = None,
     is_featured: Annotated[bool | None, Query()] = None,
     sort_by: Annotated[str, Query()] = "created_at",
@@ -638,6 +649,13 @@ def list_assets_public(
         stmt = stmt.join(ContentAssetGoal).where(ContentAssetGoal.goal_id.in_(g_ids))
     elif goal_id:
         stmt = stmt.join(ContentAssetGoal).where(ContentAssetGoal.goal_id == goal_id)
+
+    # Topic filtering (single or multi)
+    t_ids = _parse_csv_uuids(topic_ids)
+    if t_ids:
+        stmt = stmt.join(TopicResource, TopicResource.content_asset_id == ContentAsset.id).where(TopicResource.topic_id.in_(t_ids))
+    elif topic_id:
+        stmt = stmt.join(TopicResource, TopicResource.content_asset_id == ContentAsset.id).where(TopicResource.topic_id == topic_id)
 
     if cohort_id:
         stmt = stmt.join(ContentAssetCohort).where(ContentAssetCohort.cohort_id == cohort_id)
@@ -918,7 +936,79 @@ def update_question_status(
     return obj
 
 
+# ── Grade Sets ───────────────────────────────────────────────────────────────
+
+
+def _get_default_grade_set_id(db) -> uuid.UUID | None:
+    """Return the ID of the default grade set."""
+    gs = db.query(GradeSet).filter(GradeSet.is_default.is_(True)).first()
+    return gs.id if gs else None
+
+
+@router.get("/grade-sets", response_model=list[GradeSetSummary])
+def list_grade_sets(_admin: AdminDep, db: DbDep):
+    """Admin: list all grade sets."""
+    return db.scalars(select(GradeSet).order_by(GradeSet.name)).all()
+
+
+@router.post("/grade-sets", response_model=GradeSetSummary, status_code=201)
+def create_grade_set(body: GradeSetCreate, _admin: AdminDep, db: DbDep):
+    """Admin: create a new grade set."""
+    obj = GradeSet(**body.model_dump())
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@router.patch("/grade-sets/{grade_set_id}", response_model=GradeSetSummary)
+def update_grade_set(grade_set_id: uuid.UUID, body: GradeSetUpdate, _admin: AdminDep, db: DbDep):
+    """Admin: update a grade set."""
+    obj = db.get(GradeSet, grade_set_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Grade set not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(obj, k, v)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@router.delete("/grade-sets/{grade_set_id}", status_code=204)
+def delete_grade_set(grade_set_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    """Admin: delete a grade set (must have no configs)."""
+    obj = db.get(GradeSet, grade_set_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Grade set not found")
+    if obj.is_default:
+        raise HTTPException(status_code=400, detail="Cannot delete the default grade set")
+    config_count = db.query(GradeConfig).filter(GradeConfig.grade_set_id == grade_set_id).count()
+    if config_count > 0:
+        raise HTTPException(status_code=409, detail="Grade set has configs assigned. Remove them first.")
+    db.delete(obj)
+    db.commit()
+
+
 # ── Grade Configs ────────────────────────────────────────────────────────────
+
+
+def _gc_summary(gc: GradeConfig) -> GradeConfigSummary:
+    """Build a lightweight GradeConfigSummary from a loaded GradeConfig."""
+    return GradeConfigSummary(
+        id=gc.id,
+        grade_set_id=gc.grade_set_id,
+        grade=gc.grade,
+        label=gc.label,
+        description=gc.description,
+        video_overview_url=gc.video_overview_url,
+        icon=gc.icon,
+        bg_color=gc.bg_color,
+        page_title=gc.page_title,
+        page_description=gc.page_description,
+        banner_image_url=gc.banner_image_url,
+        sort_order=gc.sort_order,
+        goal_ids=[g.id for g in gc.goals],
+    )
 
 
 def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
@@ -946,6 +1036,7 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
         )
     return GradeConfigOut(
         id=gc.id,
+        grade_set_id=gc.grade_set_id,
         grade=gc.grade,
         label=gc.label,
         description=gc.description,
@@ -962,10 +1053,28 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
 
 
 @router.get("/grade-configs/public", response_model=list[GradeConfigOut])
-def list_grade_configs_public(db: DbDep):
-    """Public: list all grade configs with their goals and published assets/topics."""
-    configs = db.execute(
+def list_grade_configs_public(
+    db: DbDep,
+    school_slug: str | None = Query(default=None),
+):
+    """Public: list grade configs with goals and published assets/topics.
+
+    If school_slug is provided, returns the grade set assigned to that school.
+    Otherwise falls back to the default grade set.
+    """
+    grade_set_id: uuid.UUID | None = None
+
+    if school_slug:
+        school = db.query(School).filter(School.slug == school_slug).first()
+        if school and school.grade_set_id:
+            grade_set_id = school.grade_set_id
+
+    if grade_set_id is None:
+        grade_set_id = _get_default_grade_set_id(db)
+
+    stmt = (
         select(GradeConfig)
+        .where(GradeConfig.grade_set_id == grade_set_id)
         .outerjoin(GradeConfigGoal, GradeConfig.id == GradeConfigGoal.grade_config_id)
         .outerjoin(Goal, GradeConfigGoal.goal_id == Goal.id)
         .options(
@@ -976,60 +1085,80 @@ def list_grade_configs_public(db: DbDep):
             .selectinload(Goal.topics),
         )
         .order_by(GradeConfig.grade, GradeConfigGoal.sort_order)
-    ).unique().scalars().all()
+    )
+    configs = db.execute(stmt).unique().scalars().all()
     return [_load_grade_config(db, gc) for gc in configs]
 
+
 @router.get("/grade-configs/public/{grade}", response_model=GradeConfigOut)
-def get_grade_config_by_grade(grade: int, db: DbDep):
-    """Public: get a grade config by its grade."""
-    gc = db.query(GradeConfig).filter(GradeConfig.grade == grade).one_or_none()
+def get_grade_config_by_grade(
+    grade: int,
+    db: DbDep,
+    school_slug: str | None = Query(default=None),
+):
+    """Public: get a grade config by its grade number."""
+    grade_set_id: uuid.UUID | None = None
+
+    if school_slug:
+        school = db.query(School).filter(School.slug == school_slug).first()
+        if school and school.grade_set_id:
+            grade_set_id = school.grade_set_id
+
+    if grade_set_id is None:
+        grade_set_id = _get_default_grade_set_id(db)
+
+    gc = (
+        db.query(GradeConfig)
+        .filter(GradeConfig.grade_set_id == grade_set_id, GradeConfig.grade == grade)
+        .one_or_none()
+    )
     if not gc:
         raise HTTPException(status_code=404, detail="Grade config not found")
     return _load_grade_config(db, gc)
 
 
 @router.get("/grade-configs", response_model=list[GradeConfigSummary])
-def list_grade_configs(_admin: AdminDep, db: DbDep):
-    """Admin: list all grade configs (lightweight, with goal IDs only)."""
-    configs = (
-        db.query(GradeConfig)
-        .options(selectinload(GradeConfig.goals))
-        .order_by(GradeConfig.grade)
-        .all()
-    )
-    results = []
-    for gc in configs:
-        results.append(
-            GradeConfigSummary(
-                id=gc.id,
-                grade=gc.grade,
-                label=gc.label,
-                description=gc.description,
-                video_overview_url=gc.video_overview_url,
-                icon=gc.icon,
-                bg_color=gc.bg_color,
-                sort_order=gc.sort_order,
-                goal_ids=[g.id for g in gc.goals],
-            )
-        )
-    return results
+def list_grade_configs(
+    _admin: AdminDep,
+    db: DbDep,
+    grade_set_id: uuid.UUID | None = Query(default=None),
+):
+    """Admin: list grade configs (lightweight, with goal IDs only).
+
+    Optionally filter by grade_set_id.
+    """
+    q = db.query(GradeConfig).options(selectinload(GradeConfig.goals))
+    if grade_set_id:
+        q = q.filter(GradeConfig.grade_set_id == grade_set_id)
+    configs = q.order_by(GradeConfig.grade).all()
+    return [_gc_summary(gc) for gc in configs]
 
 
 @router.post("/grade-configs", response_model=GradeConfigSummary, status_code=201)
 def create_grade_config(body: GradeConfigCreate, _admin: AdminDep, db: DbDep):
-    """Admin: create a new grade config."""
-    existing = db.query(GradeConfig).filter(GradeConfig.grade == body.grade).first()
+    """Admin: create a new grade config within a grade set."""
+    # Verify grade set exists
+    gs = db.get(GradeSet, body.grade_set_id)
+    if not gs:
+        raise HTTPException(status_code=404, detail="Grade set not found")
+
+    existing = (
+        db.query(GradeConfig)
+        .filter(GradeConfig.grade_set_id == body.grade_set_id, GradeConfig.grade == body.grade)
+        .first()
+    )
     if existing:
-        raise HTTPException(status_code=400, detail=f"Grade {body.grade} config already exists")
+        raise HTTPException(status_code=400, detail=f"Grade {body.grade} already exists in this grade set")
     gc = GradeConfig(**body.model_dump())
     db.add(gc)
     db.commit()
     db.refresh(gc)
     return GradeConfigSummary(
-        id=gc.id, grade=gc.grade, label=gc.label,
+        id=gc.id, grade_set_id=gc.grade_set_id, grade=gc.grade, label=gc.label,
         description=gc.description, video_overview_url=gc.video_overview_url,
-        icon=gc.icon, bg_color=gc.bg_color, sort_order=gc.sort_order,
-        goal_ids=[],
+        icon=gc.icon, bg_color=gc.bg_color, page_title=gc.page_title,
+        page_description=gc.page_description, banner_image_url=gc.banner_image_url,
+        sort_order=gc.sort_order, goal_ids=[],
     )
 
 
@@ -1046,12 +1175,7 @@ def update_grade_config(
     db.commit()
     db.refresh(gc)
     gc = db.query(GradeConfig).options(selectinload(GradeConfig.goals)).filter(GradeConfig.id == gc.id).one()
-    return GradeConfigSummary(
-        id=gc.id, grade=gc.grade, label=gc.label,
-        description=gc.description, video_overview_url=gc.video_overview_url,
-        icon=gc.icon, bg_color=gc.bg_color, sort_order=gc.sort_order,
-        goal_ids=[g.id for g in gc.goals],
-    )
+    return _gc_summary(gc)
 
 
 @router.delete("/grade-configs/{grade_config_id}", status_code=204)
@@ -1093,9 +1217,4 @@ def update_grade_config_goals(
     db.commit()
 
     gc = db.query(GradeConfig).options(selectinload(GradeConfig.goals)).filter(GradeConfig.id == gc.id).one()
-    return GradeConfigSummary(
-        id=gc.id, grade=gc.grade, label=gc.label,
-        description=gc.description, video_overview_url=gc.video_overview_url,
-        icon=gc.icon, bg_color=gc.bg_color, sort_order=gc.sort_order,
-        goal_ids=[g.id for g in gc.goals],
-    )
+    return _gc_summary(gc)

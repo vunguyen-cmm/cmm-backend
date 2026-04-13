@@ -43,10 +43,14 @@ class School(Base):
     logo_thumb_url: Mapped[str | None] = mapped_column(Text)
     is_current_customer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     cohort_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("cohorts.id"))
+    grade_set_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("grade_sets.id", ondelete="SET NULL"), nullable=True
+    )
     bubble_rec_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     cohort: Mapped[Cohort | None] = relationship(back_populates="schools")
+    grade_set: Mapped[GradeSet | None] = relationship("GradeSet")
     contacts: Mapped[list[Contact]] = relationship(back_populates="school")
     sales: Mapped[list[Sale]] = relationship(back_populates="school")
     workshop_registrations: Mapped[list[WorkshopRegistration]] = relationship(back_populates="school")
@@ -57,6 +61,7 @@ class School(Base):
     __table_args__ = (
         Index("idx_schools_cohort_id", "cohort_id"),
         Index("idx_schools_slug", "slug"),
+        Index("idx_schools_grade_set_id", "grade_set_id"),
     )
 
 

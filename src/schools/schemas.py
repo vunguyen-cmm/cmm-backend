@@ -25,6 +25,13 @@ class ContactSummary(BaseModel):
     receive_comms: bool = True
 
 
+class GradeSetRef(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+
+
 class SchoolListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -41,6 +48,8 @@ class SchoolListItem(BaseModel):
     slug: str | None = None
     cohort_id: uuid.UUID | None = None
     cohort: CohortSummary | None = None
+    grade_set_id: uuid.UUID | None = None
+    grade_set: GradeSetRef | None = None
     created_at: datetime | None = None
     # Link fields (hidden columns in admin table)
     school_resource_center_url: str | None = None
@@ -67,6 +76,7 @@ class SchoolCreate(BaseModel):
     street_address: str | None = None
     enrollment_9_12: int | None = None
     cohort_id: uuid.UUID | None = None
+    grade_set_id: uuid.UUID | None = None
     is_current_customer: bool = False
     logo_url: str | None = None
     school_resource_center_url: str | None = None
@@ -85,6 +95,7 @@ class SchoolUpdate(BaseModel):
     street_address: str | None = None
     enrollment_9_12: int | None = None
     cohort_id: uuid.UUID | None = None
+    grade_set_id: uuid.UUID | None = None
     is_current_customer: bool | None = None
     logo_url: str | None = None
     cmm_website_password: str | None = None
@@ -106,6 +117,10 @@ class SchoolListResponse(BaseModel):
 
 # ── Public (no-auth) schemas ────────────────────────────────────────────────
 
+class SchoolGradeSetUpdate(BaseModel):
+    grade_set_id: uuid.UUID | None = None
+
+
 class SchoolPublic(BaseModel):
     """Safe school data returned to unauthenticated portal visitors."""
     model_config = ConfigDict(from_attributes=True)
@@ -118,6 +133,7 @@ class SchoolPublic(BaseModel):
     logo_url: str | None = None
     logo_thumb_url: str | None = None
     is_current_customer: bool = False
+    grade_set_id: uuid.UUID | None = None
 
 
 class SchoolPublicListResponse(BaseModel):

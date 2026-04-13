@@ -11,9 +11,11 @@ from sqlalchemy.orm import joinedload, selectinload
 from src.auth.deps import AdminDep, CurrentUserDep
 from src.db.deps import DbDep
 from src.schools.models import Contact, School
+from src.content.models import GradeSet
 from src.schools.schemas import (
     SchoolCreate,
     SchoolDetail,
+    SchoolGradeSetUpdate,
     SchoolListItem,
     SchoolListResponse,
     SchoolPasswordUpdate,
@@ -202,7 +204,7 @@ def create_school(body: SchoolCreate, _admin: AdminDep, db: DbDep) -> SchoolDeta
     db.refresh(school)
     school = (
         db.query(School)
-        .options(joinedload(School.cohort), selectinload(School.contacts))
+        .options(joinedload(School.cohort), joinedload(School.grade_set), selectinload(School.contacts))
         .filter(School.id == school.id)
         .one()
     )
@@ -217,7 +219,7 @@ def get_school(school_id: uuid.UUID, db: DbDep, user: CurrentUserDep) -> SchoolD
     _check_school_access(school_id, user)
     school = (
         db.query(School)
-        .options(joinedload(School.cohort), selectinload(School.contacts))
+        .options(joinedload(School.cohort), joinedload(School.grade_set), selectinload(School.contacts))
         .filter(School.id == school_id)
         .first()
     )
@@ -258,7 +260,7 @@ def update_school(
     db.commit()
     school = (
         db.query(School)
-        .options(joinedload(School.cohort), selectinload(School.contacts))
+        .options(joinedload(School.cohort), joinedload(School.grade_set), selectinload(School.contacts))
         .filter(School.id == school_id)
         .one()
     )
@@ -289,3 +291,29 @@ def update_school_password(
     school.cmm_website_password = body.password
     db.commit()
     return {"message": "Password updated successfully"}
+
+
+@router.put("/{school_id}/grade-set", response_model=SchoolDetail)
+def assign_grade_set(
+    school_id: uuid.UUID,
+    body: SchoolGradeSetUpdate,
+    _admin: AdminDep,
+    db: DbDep,
+) -> SchoolDetail:
+    """Admin: assign or clear a grade set for a school."""
+    school = db.query(School).filter(School.id == school_id).first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    if body.grade_set_id is not None:
+        gs = db.get(GradeSet, body.grade_set_id)
+        if not gs:
+            raise HTTPException(status_code=404, detail="Grade set not found")
+    school.grade_set_id = body.grade_set_id
+    db.commit()
+    school = (
+        db.query(School)
+        .options(joinedload(School.cohort), joinedload(School.grade_set), selectinload(School.contacts))
+        .filter(School.id == school_id)
+        .one()
+    )
+    return SchoolDetail.model_validate(school)
