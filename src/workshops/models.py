@@ -31,6 +31,7 @@ class Workshop(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     key_actions: Mapped[str | None] = mapped_column(Text)
+    body: Mapped[str | None] = mapped_column(Text)
     sequence_number: Mapped[int | None] = mapped_column(Integer, unique=True)
     suggested_grades: Mapped[str | None] = mapped_column(Text)
     resource_center_slug: Mapped[str | None] = mapped_column(Text, unique=True)
@@ -49,8 +50,8 @@ class Webinar(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     workshop_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("workshops.id"), nullable=False)
-    cohort_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("cohorts.id"), nullable=False)
-    cycle_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("cycles.id"), nullable=False)
+    cohort_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("cohorts.id"), nullable=True)
+    cycle_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("cycles.id"), nullable=True)
     webinar_name: Mapped[str | None] = mapped_column(Text)
     zoom_webinar_id: Mapped[str | None] = mapped_column(Text, unique=True)
     start_datetime: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -75,13 +76,12 @@ class Webinar(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     workshop: Mapped[Workshop] = relationship(back_populates="webinars")
-    cohort: Mapped[Cohort] = relationship(back_populates="webinars")
-    cycle: Mapped[Cycle] = relationship(back_populates="webinars")
+    cohort: Mapped[Cohort | None] = relationship(back_populates="webinars")
+    cycle: Mapped[Cycle | None] = relationship(back_populates="webinars")
     registrations: Mapped[list[WorkshopRegistration]] = relationship(back_populates="webinar")
     portal_mappings: Mapped[list[PortalMapping]] = relationship(back_populates="webinar")
 
     __table_args__ = (
-        UniqueConstraint("workshop_id", "cohort_id", "cycle_id", name="uq_webinar_workshop_cohort_cycle"),
         Index("idx_webinars_workshop_id", "workshop_id"),
         Index("idx_webinars_cohort_id", "cohort_id"),
         Index("idx_webinars_cycle_id", "cycle_id"),

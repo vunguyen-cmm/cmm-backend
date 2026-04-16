@@ -7,12 +7,16 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from src.auth.deps import AdminDep
 from src.db.deps import DbDep
+from src.schools.models import School
 from src.workshops.models import PortalMapping, Webinar, Workshop, WorkshopRegistration
 from src.workshops.schemas import (
+    PortalMappingCreate,
+    PortalMappingOut,
     RegistrationCreate,
     RegistrationOut,
     RegistrationUpdate,
@@ -54,7 +58,7 @@ def _webinar_out(webinar: Webinar) -> WebinarOut:
         track_registrations=webinar.track_registrations,
         created_at=webinar.created_at,
         workshop_name=webinar.workshop.name,
-        cohort_name=webinar.cohort.name,
+        cohort_name=webinar.cohort.name if webinar.cohort else None,
         registration_count=len(webinar.registrations),
     )
 
@@ -101,6 +105,7 @@ def _workshop_out(obj: Workshop) -> WorkshopOut:
         name=obj.name,
         description=obj.description,
         key_actions=obj.key_actions,
+        body=obj.body,
         sequence_number=obj.sequence_number,
         suggested_grades=obj.suggested_grades,
         resource_center_slug=obj.resource_center_slug,
@@ -127,6 +132,7 @@ def _to_item(mapping: PortalMapping) -> WorkshopPortalItem:
         name=workshop.name,
         description=workshop.description,
         key_actions=workshop.key_actions,
+        body=workshop.body,
         suggested_grades=workshop.suggested_grades,
         workshop_art_url=workshop.workshop_art_url,
         sequence_number=workshop.sequence_number,
@@ -192,9 +198,7 @@ def create_registration(webinar_id: uuid.UUID, body: RegistrationCreate, _admin:
     webinar = db.get(Webinar, webinar_id)
     if not webinar:
         raise HTTPException(status_code=404, detail="Webinar not found")
-    if body.webinar_id != webinar_id:
-        raise HTTPException(status_code=400, detail="webinar_id in body must match URL")
-    obj = WorkshopRegistration(**body.model_dump())
+    obj = WorkshopRegistration(webinar_id=webinar_id, **body.model_dump())
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -204,6 +208,76 @@ def create_registration(webinar_id: uuid.UUID, body: RegistrationCreate, _admin:
         .options(selectinload(WorkshopRegistration.school))
     ).scalar_one()
     return _registration_out(obj)
+
+
+# ── Admin: Portal mapping (literal prefix) ───────────────────────────────────
+
+
+@router.get("/webinars/{webinar_id}/schools", response_model=list[PortalMappingOut])
+def list_webinar_schools(webinar_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    """Admin: list schools that have this webinar in their portal."""
+    webinar = db.get(Webinar, webinar_id)
+    if not webinar:
+        raise HTTPException(status_code=404, detail="Webinar not found")
+    mappings = db.execute(
+        select(PortalMapping)
+        .where(PortalMapping.webinar_id == webinar_id)
+        .options(selectinload(PortalMapping.school))
+        .order_by(PortalMapping.created_at)
+    ).scalars().all()
+    return [
+        PortalMappingOut(
+            id=m.id,
+            school_id=m.school_id,
+            school_name=m.school.name,
+            webinar_id=m.webinar_id,
+            show_zoom=m.show_zoom,
+            created_at=m.created_at,
+        )
+        for m in mappings
+    ]
+
+
+@router.post("/webinars/{webinar_id}/schools", response_model=PortalMappingOut, status_code=status.HTTP_201_CREATED)
+def add_webinar_school(webinar_id: uuid.UUID, body: PortalMappingCreate, _admin: AdminDep, db: DbDep):
+    """Admin: add a school to a webinar's portal mapping."""
+    webinar = db.get(Webinar, webinar_id)
+    if not webinar:
+        raise HTTPException(status_code=404, detail="Webinar not found")
+    school = db.get(School, body.school_id)
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    mapping = PortalMapping(school_id=body.school_id, webinar_id=webinar_id, show_zoom=body.show_zoom)
+    db.add(mapping)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="School is already mapped to this webinar")
+    db.refresh(mapping)
+    return PortalMappingOut(
+        id=mapping.id,
+        school_id=mapping.school_id,
+        school_name=school.name,
+        webinar_id=mapping.webinar_id,
+        show_zoom=mapping.show_zoom,
+        created_at=mapping.created_at,
+    )
+
+
+@router.delete("/webinars/{webinar_id}/schools/{school_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_webinar_school(webinar_id: uuid.UUID, school_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    """Admin: remove a school from a webinar's portal mapping."""
+    mapping = db.execute(
+        select(PortalMapping).where(
+            PortalMapping.webinar_id == webinar_id,
+            PortalMapping.school_id == school_id,
+        )
+    ).scalar_one_or_none()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="School is not mapped to this webinar")
+    db.delete(mapping)
+    db.commit()
 
 
 # ── Admin: Registrations (literal prefix) ────────────────────────────────────
@@ -350,6 +424,7 @@ def create_workshop(body: WorkshopCreate, _admin: AdminDep, db: DbDep):
         name=obj.name,
         description=obj.description,
         key_actions=obj.key_actions,
+        body=obj.body,
         sequence_number=obj.sequence_number,
         suggested_grades=obj.suggested_grades,
         resource_center_slug=obj.resource_center_slug,
@@ -403,12 +478,22 @@ def create_webinar(workshop_id: uuid.UUID, body: WebinarCreate, _admin: AdminDep
     workshop = db.get(Workshop, workshop_id)
     if not workshop:
         raise HTTPException(status_code=404, detail="Workshop not found")
-    if body.workshop_id != workshop_id:
-        raise HTTPException(status_code=400, detail="workshop_id in body must match URL")
-    obj = Webinar(**body.model_dump())
+
+    # Create the webinar (workshop_id from URL, exclude school_ids — not a model field)
+    webinar_data = body.model_dump(exclude={"school_ids"})
+    webinar_data["workshop_id"] = workshop_id
+    obj = Webinar(**webinar_data)
     db.add(obj)
+    db.flush()  # get obj.id without committing
+
+    # Create portal_mapping entries for all selected schools
+    for school_id in body.school_ids:
+        mapping = PortalMapping(school_id=school_id, webinar_id=obj.id, show_zoom=True)
+        db.add(mapping)
+
     db.commit()
     db.refresh(obj)
+
     # Eager-load relationships for the response
     obj = db.execute(
         select(Webinar)

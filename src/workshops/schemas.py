@@ -1,4 +1,4 @@
-"""Schemas for workshops, webinars, and registrations."""
+"""Schemas for workshops, webinars, registrations, and portal mapping."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ class WorkshopCreate(BaseModel):
     name: str
     description: str | None = None
     key_actions: str | None = None
+    body: str | None = None
     sequence_number: int | None = None
     suggested_grades: str | None = None
     resource_center_slug: str | None = None
@@ -27,6 +28,7 @@ class WorkshopUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     key_actions: str | None = None
+    body: str | None = None
     sequence_number: int | None = None
     suggested_grades: str | None = None
     resource_center_slug: str | None = None
@@ -38,7 +40,7 @@ class WebinarSummary(BaseModel):
 
     id: uuid.UUID
     webinar_name: str | None
-    cohort_id: uuid.UUID
+    cohort_id: uuid.UUID | None
     start_datetime: datetime | None
     end_datetime: datetime | None
     zoom_webinar_id: str | None
@@ -68,6 +70,7 @@ class WorkshopOut(BaseModel):
     name: str
     description: str | None
     key_actions: str | None
+    body: str | None
     sequence_number: int | None
     suggested_grades: str | None
     resource_center_slug: str | None
@@ -81,9 +84,9 @@ class WorkshopOut(BaseModel):
 
 
 class WebinarCreate(BaseModel):
-    workshop_id: uuid.UUID
-    cohort_id: uuid.UUID
-    cycle_id: uuid.UUID
+    cohort_id: uuid.UUID | None = None
+    cycle_id: uuid.UUID | None = None
+    school_ids: list[uuid.UUID] = []
     webinar_name: str | None = None
     zoom_webinar_id: str | None = None
     start_datetime: datetime | None = None
@@ -117,8 +120,8 @@ class WebinarOut(BaseModel):
 
     id: uuid.UUID
     workshop_id: uuid.UUID
-    cohort_id: uuid.UUID
-    cycle_id: uuid.UUID
+    cohort_id: uuid.UUID | None
+    cycle_id: uuid.UUID | None
     webinar_name: str | None
     zoom_webinar_id: str | None
     start_datetime: datetime | None
@@ -133,7 +136,7 @@ class WebinarOut(BaseModel):
     track_registrations: bool
     created_at: datetime
     workshop_name: str
-    cohort_name: str
+    cohort_name: str | None
     registration_count: int
 
 
@@ -141,7 +144,6 @@ class WebinarOut(BaseModel):
 
 
 class RegistrationCreate(BaseModel):
-    webinar_id: uuid.UUID
     email: str
     first_name: str | None = None
     last_name: str | None = None
@@ -181,6 +183,25 @@ class RegistrationOut(BaseModel):
     school_name: str | None
 
 
+# ── Admin: Portal mapping schemas ────────────────────────────────────────────
+
+
+class PortalMappingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    school_id: uuid.UUID
+    school_name: str
+    webinar_id: uuid.UUID
+    show_zoom: bool
+    created_at: datetime
+
+
+class PortalMappingCreate(BaseModel):
+    school_id: uuid.UUID
+    show_zoom: bool = True
+
+
 # ── Public: Portal schemas ───────────────────────────────────────────────────
 
 
@@ -204,6 +225,7 @@ class WorkshopPortalItem(BaseModel):
     name: str
     description: str | None
     key_actions: str | None
+    body: str | None
     suggested_grades: str | None
     workshop_art_url: str | None
     sequence_number: int | None
