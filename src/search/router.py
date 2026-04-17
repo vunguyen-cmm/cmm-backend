@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy import desc
 
 from src.content.models import ContentAsset, Topic
@@ -43,7 +43,21 @@ def global_search(
     school_slug: Annotated[str | None, Query()] = None,
 ) -> GlobalSearchResponse:
     """Public: full-text search across topics, workshops, and content assets."""
-    tsquery = func.plainto_tsquery("english", q)
+    # Two complementary queries are OR-ed on every table:
+    #
+    # 1. simple prefix   — to_tsquery('simple', 'prod:*')
+    #    Lowercases only, no stemming.  ':*' does a raw character-prefix match
+    #    against stored lexemes.  The English tsvector stores 'product' for
+    #    'products', and 'product' starts with 'prod' → matches partial input.
+    #
+    # 2. English stemmed — plainto_tsquery('english', 'products')
+    #    Normalises 'products' → 'product' and matches the stored lexeme
+    #    exactly.  Needed so a fully-typed inflected word still finds results
+    #    even though 'products:*' (simple) wouldn't match the stored 'product'.
+    words = [w for w in q.strip().split() if w]
+    prefix_expr = " & ".join(w + ":*" for w in words) if words else q
+    simple_tsq = func.to_tsquery("simple", prefix_expr)
+    english_tsq = func.plainto_tsquery("english", q)
 
     topic_results: list[SearchResult] = []
     workshop_results: list[SearchResult] = []
@@ -57,9 +71,12 @@ def global_search(
                 Topic.title,
                 Topic.description,
                 Topic.slug,
-                func.ts_rank(Topic.search_vector, tsquery).label("rank"),
+                func.ts_rank(Topic.search_vector, simple_tsq).label("rank"),
             )
-            .where(Topic.search_vector.op("@@")(tsquery))
+            .where(or_(
+                Topic.search_vector.op("@@")(simple_tsq),
+                Topic.search_vector.op("@@")(english_tsq),
+            ))
             .where(Topic.status == "published")
             .order_by(desc("rank"))
             .limit(limit)
@@ -91,13 +108,16 @@ def global_search(
             Workshop.id,
             Workshop.name,
             Workshop.description,
-            func.ts_rank(Workshop.search_vector, tsquery).label("rank"),
+            func.ts_rank(Workshop.search_vector, simple_tsq).label("rank"),
             *(
                 [webinar_subq.label("webinar_id")]
                 if webinar_subq is not None
                 else []
             ),
-        ).where(Workshop.search_vector.op("@@")(tsquery)).order_by(desc("rank")).limit(limit)
+        ).where(or_(
+            Workshop.search_vector.op("@@")(simple_tsq),
+            Workshop.search_vector.op("@@")(english_tsq),
+        )).order_by(desc("rank")).limit(limit)
 
         rows = db.execute(stmt).all()
         workshop_results = [
@@ -117,9 +137,12 @@ def global_search(
                 ContentAsset.id,
                 ContentAsset.name,
                 ContentAsset.description,
-                func.ts_rank(ContentAsset.search_vector, tsquery).label("rank"),
+                func.ts_rank(ContentAsset.search_vector, simple_tsq).label("rank"),
             )
-            .where(ContentAsset.search_vector.op("@@")(tsquery))
+            .where(or_(
+                ContentAsset.search_vector.op("@@")(simple_tsq),
+                ContentAsset.search_vector.op("@@")(english_tsq),
+            ))
             .where(ContentAsset.status == "published")
             .order_by(desc("rank"))
             .limit(limit)
