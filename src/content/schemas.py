@@ -15,6 +15,7 @@ class AssetTypeOut(BaseModel):
     airtable_id: str | None
     name: str
     color: str | None
+    icon: str | None
     icon_url: str | None
     created_at: datetime
 
@@ -24,12 +25,14 @@ class AssetTypeOut(BaseModel):
 class AssetTypeCreate(BaseModel):
     name: str
     color: str | None = None
+    icon: str | None = None
     icon_url: str | None = None
 
 
 class AssetTypeUpdate(BaseModel):
     name: str | None = None
     color: str | None = None
+    icon: str | None = None
     icon_url: str | None = None
 
 

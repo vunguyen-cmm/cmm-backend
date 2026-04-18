@@ -119,7 +119,7 @@ def _to_item(
         workshop_art_url=workshop.workshop_art_url,
         sequence_number=workshop.sequence_number,
         action_items=list(workshop.action_items or []),
-        resources=[ContentAssetSummary.model_validate(a) for a in workshop.content_assets],
+        resources=[ContentAssetSummary.model_validate(a) for a in workshop.content_assets if a.status == "published"],
         cycle_name=webinar.cycle.name if webinar.cycle else None,
         prev_cycle_video_embed_code=prev_cycle_video_embed_code,
         prev_cycle_name=prev_cycle_name,

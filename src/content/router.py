@@ -298,6 +298,37 @@ def list_topics(
     return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 
+@router.get("/topics/public", response_model=list[TopicListItem])
+def list_topics_public(db: DbDep):
+    """Public — list all published topics ordered by sort_order, title."""
+    stmt = (
+        select(Topic)
+        .where(Topic.status == "published")
+        .options(selectinload(Topic.goal))
+        .order_by(Topic.sort_order.asc(), Topic.title.asc())
+    )
+    return db.scalars(stmt).all()
+
+
+@router.get("/topics/public/slug/{slug}", response_model=TopicDetail)
+def get_topic_by_slug_public(slug: str, db: DbDep):
+    """Public — return a single topic by slug (published only)."""
+    stmt = (
+        select(Topic)
+        .where(Topic.slug == slug, Topic.status == "published")
+        .options(
+            selectinload(Topic.goal),
+            selectinload(Topic.faqs),
+            selectinload(Topic.resources).selectinload(ContentAsset.asset_type),
+        )
+    )
+    topic = db.scalar(stmt)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    topic.resources = [r for r in topic.resources if r.status == "published"]
+    return topic
+
+
 @router.get("/topics/{topic_id}", response_model=TopicDetail)
 def get_topic(topic_id: uuid.UUID, _admin: AdminDep, db: DbDep):
     return _load_topic_detail(db, topic_id)
@@ -430,24 +461,6 @@ def update_topic_resources(topic_id: uuid.UUID, body: TopicResourcesUpdate, _adm
     return _load_topic_detail(db, topic_id)
 
 
-@router.get("/topics/public/slug/{slug}", response_model=TopicDetail)
-def get_topic_by_slug_public(slug: str, db: DbDep):
-    """Public — return a single topic by slug (published only)."""
-    stmt = (
-        select(Topic)
-        .where(Topic.slug == slug, Topic.status == "published")
-        .options(
-            selectinload(Topic.goal),
-            selectinload(Topic.faqs),
-            selectinload(Topic.resources).selectinload(ContentAsset.asset_type),
-        )
-    )
-    topic = db.scalar(stmt)
-    if not topic:
-        raise HTTPException(status_code=404, detail="Topic not found")
-    return topic
-
-
 # ── Objectives ────────────────────────────────────────────────────────────────
 
 @router.get("/objectives", response_model=list[ObjectiveOut])
@@ -517,7 +530,7 @@ def _load_asset_detail(db: DbDep, asset_id: uuid.UUID) -> ContentAsset:
 def _resolve_resources(db: DbDep, asset: ContentAsset) -> list[ContentAsset]:
     """Return hand-picked resources or auto-fallback by shared objectives/goals."""
     if asset.resources:
-        return list(asset.resources)
+        return [r for r in asset.resources if r.status == "published"]
 
     obj_ids = [o.id for o in asset.objectives]
     goal_ids = [g.id for g in asset.goals]
@@ -620,7 +633,7 @@ def list_assets_public(
     sort_by: Annotated[str, Query()] = "created_at",
     sort_dir: Annotated[str, Query()] = "desc",
     skip: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 50,
 ):
     """Public endpoint — only returns published assets."""
     _NAME_THRESHOLD = 0.3
