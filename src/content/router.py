@@ -1076,15 +1076,29 @@ def update_grade_set(grade_set_id: uuid.UUID, body: GradeSetUpdate, _admin: Admi
 
 @router.delete("/grade-sets/{grade_set_id}", status_code=204)
 def delete_grade_set(grade_set_id: uuid.UUID, _admin: AdminDep, db: DbDep):
-    """Admin: delete a grade set (must have no configs)."""
+    """Admin: delete a grade set.
+
+    Schools assigned to this grade set are automatically moved to the default
+    grade set. All grade configs in the set are deleted first.
+    """
     obj = db.get(GradeSet, grade_set_id)
     if not obj:
         raise HTTPException(status_code=404, detail="Grade set not found")
     if obj.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete the default grade set")
-    config_count = db.query(GradeConfig).filter(GradeConfig.grade_set_id == grade_set_id).count()
-    if config_count > 0:
-        raise HTTPException(status_code=409, detail="Grade set has configs assigned. Remove them first.")
+
+    # Move all schools on this grade set to the default grade set
+    default_gs = db.query(GradeSet).filter(GradeSet.is_default.is_(True)).first()
+    default_id = default_gs.id if default_gs else None
+    db.query(School).filter(School.grade_set_id == grade_set_id).update(
+        {School.grade_set_id: default_id}, synchronize_session=False
+    )
+
+    # Delete all grade configs belonging to this set (FK is RESTRICT, must go first)
+    db.query(GradeConfig).filter(GradeConfig.grade_set_id == grade_set_id).delete(
+        synchronize_session=False
+    )
+
     db.delete(obj)
     db.commit()
 
