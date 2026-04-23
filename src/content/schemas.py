@@ -213,7 +213,6 @@ class GoalWithTopics(BaseModel):
     suggested_grades: str | None
     sort_order: int
     topics: list[TopicSummary]
-    content_assets: list[ContentAssetSummary]
 
     model_config = {"from_attributes": True}
 
@@ -455,7 +454,6 @@ class GradeConfigOut(BaseModel):
     page_description: str | None = None
     banner_image_url: str | None = None
     sort_order: int
-    milestone_label: str | None = None
     goals: list[GoalWithTopics]
     created_at: datetime
 
@@ -476,7 +474,6 @@ class GradeConfigSummary(BaseModel):
     page_description: str | None = None
     banner_image_url: str | None = None
     sort_order: int
-    milestone_label: str | None = None
     goal_ids: list[uuid.UUID]
 
     model_config = {"from_attributes": True}
@@ -494,7 +491,6 @@ class GradeConfigCreate(BaseModel):
     page_description: str | None = None
     banner_image_url: str | None = None
     sort_order: int = 0
-    milestone_label: str | None = None
 
 
 class GradeConfigUpdate(BaseModel):
@@ -507,7 +503,6 @@ class GradeConfigUpdate(BaseModel):
     page_description: str | None = None
     banner_image_url: str | None = None
     sort_order: int | None = None
-    milestone_label: str | None = None
 
 
 class GradeConfigGoalsUpdate(BaseModel):
@@ -598,53 +593,3 @@ class ResourceCategoryUpdate(BaseModel):
         return v
 
 
-# ── Milestones ───────────────────────────────────────────────────────────────
-
-class GradeConfigRef(BaseModel):
-    id: uuid.UUID
-    grade: int
-    label: str
-
-    model_config = {"from_attributes": True}
-
-
-class MilestoneOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    description: str | None
-    sort_order: int
-    created_at: datetime
-    updated_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class MilestoneDetail(BaseModel):
-    id: uuid.UUID
-    name: str
-    slug: str
-    description: str | None
-    sort_order: int
-    created_at: datetime
-    updated_at: datetime | None = None
-    grade_configs: list[GradeConfigRef]
-    goals: list[GoalOut]
-    topics: list[TopicRef]
-    workshops: list[WorkshopRef]
-
-    model_config = {"from_attributes": True}
-
-
-class MilestoneCreate(BaseModel):
-    name: str
-    slug: str | None = None
-    description: str | None = None
-    sort_order: int = 0
-
-
-class MilestoneUpdate(BaseModel):
-    name: str | None = None
-    slug: str | None = None
-    description: str | None = None
-    sort_order: int | None = None

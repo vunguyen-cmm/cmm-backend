@@ -27,11 +27,6 @@ from src.content.models import (
     GradeConfig,
     GradeConfigGoal,
     GradeSet,
-    Milestone,
-    MilestoneGoal,
-    MilestoneGradeConfig,
-    MilestoneTopic,
-    MilestoneWorkshop,
     Objective,
     ReaderQuestion,
     ResourceCategory,
@@ -51,7 +46,6 @@ from src.content.schemas import (
     ContentAssetDetail,
     ContentAssetListItem,
     ContentAssetListResponse,
-    ContentAssetSummary,
     ContentAssetUpdate,
     FaqCreate,
     FaqOut,
@@ -69,10 +63,6 @@ from src.content.schemas import (
     GradeSetCreate,
     GradeSetSummary,
     GradeSetUpdate,
-    MilestoneCreate,
-    MilestoneDetail,
-    MilestoneOut,
-    MilestoneUpdate,
     ObjectiveCreate,
     ObjectiveOut,
     ObjectiveUpdate,
@@ -180,10 +170,7 @@ def list_goals_by_grade(grade: int, db: DbDep):
     """Public — return goals for a grade with their published topics and content assets."""
     stmt = (
         select(Goal)
-        .options(
-            selectinload(Goal.content_assets).selectinload(ContentAsset.asset_type),
-            selectinload(Goal.topics),
-        )
+        .options(selectinload(Goal.topics))
         .order_by(Goal.sort_order, Goal.name)
     )
     goals = db.scalars(stmt).all()
@@ -194,8 +181,6 @@ def list_goals_by_grade(grade: int, db: DbDep):
         grades = [g.strip() for g in (goal.suggested_grades or "").split(",") if g.strip()]
         if grade_str not in grades:
             continue
-        # Filter to published assets and topics only
-        goal.content_assets = [a for a in goal.content_assets if a.status == "published"]
         goal.topics = [t for t in goal.topics if t.status == "published"]
         result.append(goal)
     return result
@@ -203,19 +188,15 @@ def list_goals_by_grade(grade: int, db: DbDep):
 
 @router.get("/goals/public/slug/{slug}", response_model=GoalWithTopics)
 def get_goal_by_slug(slug: str, db: DbDep):
-    """Public — return a single goal by slug with published topics and content assets."""
+    """Public — return a single goal by slug with its published topics."""
     stmt = (
         select(Goal)
         .where(Goal.slug == slug)
-        .options(
-            selectinload(Goal.content_assets).selectinload(ContentAsset.asset_type),
-            selectinload(Goal.topics),
-        )
+        .options(selectinload(Goal.topics))
     )
     goal = db.scalar(stmt)
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
-    goal.content_assets = [a for a in goal.content_assets if a.status == "published"]
     goal.topics = [t for t in goal.topics if t.status == "published"]
     return goal
 
@@ -668,7 +649,6 @@ def list_assets_public(
     topic_id: Annotated[uuid.UUID | None, Query()] = None,
     topic_ids: Annotated[str | None, Query()] = None,
     category_ids: Annotated[str | None, Query()] = None,
-    milestone_ids: Annotated[str | None, Query()] = None,
     grades: Annotated[str | None, Query()] = None,
     cohort_id: Annotated[uuid.UUID | None, Query()] = None,
     school_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -830,28 +810,6 @@ def list_assets_public(
         )
         grade_asset_combined = topic_asset_subq.union(workshop_asset_subq)
         stmt = stmt.where(ContentAsset.id.in_(grade_asset_combined))
-
-    # Milestone filtering: milestone → (goals→topics ∪ direct topics ∪ workshops) → assets
-    ms_ids = _parse_csv_uuids(milestone_ids)
-    if ms_ids:
-        ms_goal_subq = select(MilestoneGoal.goal_id).where(MilestoneGoal.milestone_id.in_(ms_ids))
-        ms_topics_from_goals_subq = select(Topic.id).where(Topic.goal_id.in_(ms_goal_subq))
-        ms_direct_topic_subq = select(MilestoneTopic.topic_id).where(MilestoneTopic.milestone_id.in_(ms_ids))
-        ms_all_topics_subq = ms_topics_from_goals_subq.union(ms_direct_topic_subq)
-        ms_workshop_subq = select(MilestoneWorkshop.workshop_id).where(
-            MilestoneWorkshop.milestone_id.in_(ms_ids)
-        )
-        ms_asset_subq = (
-            select(TopicResource.content_asset_id).where(
-                TopicResource.topic_id.in_(ms_all_topics_subq)
-            )
-            .union(
-                select(WorkshopResource.content_asset_id).where(
-                    WorkshopResource.workshop_id.in_(ms_workshop_subq)
-                )
-            )
-        )
-        stmt = stmt.where(ContentAsset.id.in_(ms_asset_subq))
 
     if school_id:
         # Return assets accessible to this school:
@@ -1308,9 +1266,6 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
     """Build a GradeConfigOut with goals and their published topics/assets."""
     goals_with_topics = []
     for goal in gc.goals:
-        published_assets = [
-            a for a in goal.content_assets if a.status == "published"
-        ]
         published_topics = [
             t for t in goal.topics if t.status == "published"
         ]
@@ -1324,7 +1279,6 @@ def _load_grade_config(db, gc: GradeConfig) -> GradeConfigOut:
                 suggested_grades=goal.suggested_grades,
                 sort_order=goal.sort_order,
                 topics=[TopicSummary.model_validate(t) for t in published_topics],
-                content_assets=[ContentAssetSummary.model_validate(a) for a in published_assets],
             )
         )
     return GradeConfigOut(
@@ -1371,9 +1325,6 @@ def list_grade_configs_public(
         .outerjoin(GradeConfigGoal, GradeConfig.id == GradeConfigGoal.grade_config_id)
         .outerjoin(Goal, GradeConfigGoal.goal_id == Goal.id)
         .options(
-            contains_eager(GradeConfig.goals)
-            .selectinload(Goal.content_assets)
-            .selectinload(ContentAsset.asset_type),
             contains_eager(GradeConfig.goals)
             .selectinload(Goal.topics),
         )
@@ -1627,123 +1578,3 @@ def update_resource_category_workshops(
     return _load_resource_category_detail(db, cat_id)
 
 
-# ── Milestones ───────────────────────────────────────────────────────────────
-
-def _load_milestone_detail(db: DbDep, ms_id: uuid.UUID) -> Milestone:
-    stmt = (
-        select(Milestone)
-        .where(Milestone.id == ms_id)
-        .options(
-            selectinload(Milestone.grade_configs),
-            selectinload(Milestone.goals),
-            selectinload(Milestone.topics),
-            selectinload(Milestone.workshops),
-        )
-    )
-    obj = db.scalar(stmt)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    return obj
-
-
-@router.get("/milestones", response_model=list[MilestoneOut])
-def list_milestones(_admin: AdminDep, db: DbDep):
-    return db.scalars(select(Milestone).order_by(Milestone.sort_order, Milestone.name)).all()
-
-
-@router.get("/milestones/public", response_model=list[MilestoneOut])
-def list_milestones_public(db: DbDep):
-    return db.scalars(select(Milestone).order_by(Milestone.sort_order, Milestone.name)).all()
-
-
-@router.get("/milestones/{ms_id}", response_model=MilestoneDetail)
-def get_milestone(ms_id: uuid.UUID, _admin: AdminDep, db: DbDep):
-    return _load_milestone_detail(db, ms_id)
-
-
-@router.post("/milestones", response_model=MilestoneDetail, status_code=status.HTTP_201_CREATED)
-def create_milestone(body: MilestoneCreate, _admin: AdminDep, db: DbDep):
-    if db.scalar(select(Milestone).where(Milestone.name == body.name)):
-        raise HTTPException(status_code=409, detail="Milestone with this name already exists")
-    data = body.model_dump()
-    if not data.get("slug"):
-        data["slug"] = _slugify(body.name)
-    if db.scalar(select(Milestone).where(Milestone.slug == data["slug"])):
-        raise HTTPException(status_code=409, detail="Milestone with this slug already exists")
-    obj = Milestone(**data)
-    db.add(obj)
-    db.commit()
-    db.refresh(obj)
-    return _load_milestone_detail(db, obj.id)
-
-
-@router.patch("/milestones/{ms_id}", response_model=MilestoneDetail)
-def update_milestone(ms_id: uuid.UUID, body: MilestoneUpdate, _admin: AdminDep, db: DbDep):
-    obj = db.get(Milestone, ms_id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(obj, k, v)
-    db.commit()
-    return _load_milestone_detail(db, ms_id)
-
-
-@router.delete("/milestones/{ms_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_milestone(ms_id: uuid.UUID, _admin: AdminDep, db: DbDep):
-    obj = db.get(Milestone, ms_id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    db.delete(obj)
-    db.commit()
-
-
-@router.put("/milestones/{ms_id}/grade-configs", response_model=MilestoneDetail)
-def update_milestone_grade_configs(
-    ms_id: uuid.UUID, body: RelationshipsUpdate, _admin: AdminDep, db: DbDep
-):
-    if not db.get(Milestone, ms_id):
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    db.query(MilestoneGradeConfig).filter_by(milestone_id=ms_id).delete()
-    for gcid in body.ids:
-        db.add(MilestoneGradeConfig(milestone_id=ms_id, grade_config_id=gcid))
-    db.commit()
-    return _load_milestone_detail(db, ms_id)
-
-
-@router.put("/milestones/{ms_id}/goals", response_model=MilestoneDetail)
-def update_milestone_goals(
-    ms_id: uuid.UUID, body: RelationshipsUpdate, _admin: AdminDep, db: DbDep
-):
-    if not db.get(Milestone, ms_id):
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    db.query(MilestoneGoal).filter_by(milestone_id=ms_id).delete()
-    for gid in body.ids:
-        db.add(MilestoneGoal(milestone_id=ms_id, goal_id=gid))
-    db.commit()
-    return _load_milestone_detail(db, ms_id)
-
-
-@router.put("/milestones/{ms_id}/topics", response_model=MilestoneDetail)
-def update_milestone_topics(
-    ms_id: uuid.UUID, body: RelationshipsUpdate, _admin: AdminDep, db: DbDep
-):
-    if not db.get(Milestone, ms_id):
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    db.query(MilestoneTopic).filter_by(milestone_id=ms_id).delete()
-    for tid in body.ids:
-        db.add(MilestoneTopic(milestone_id=ms_id, topic_id=tid))
-    db.commit()
-    return _load_milestone_detail(db, ms_id)
-
-
-@router.put("/milestones/{ms_id}/workshops", response_model=MilestoneDetail)
-def update_milestone_workshops(
-    ms_id: uuid.UUID, body: RelationshipsUpdate, _admin: AdminDep, db: DbDep
-):
-    if not db.get(Milestone, ms_id):
-        raise HTTPException(status_code=404, detail="Milestone not found")
-    db.query(MilestoneWorkshop).filter_by(milestone_id=ms_id).delete()
-    for wid in body.ids:
-        db.add(MilestoneWorkshop(milestone_id=ms_id, workshop_id=wid))
-    db.commit()
-    return _load_milestone_detail(db, ms_id)

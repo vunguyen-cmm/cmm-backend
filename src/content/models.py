@@ -314,7 +314,6 @@ class GradeConfig(Base):
     page_description: Mapped[str | None] = mapped_column(Text)
     banner_image_url: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    milestone_label: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     grade_set: Mapped[GradeSet] = relationship(back_populates="grade_configs")
@@ -400,78 +399,3 @@ class ResourceCategoryWorkshop(Base):
     )
 
 
-# ── Milestones ───────────────────────────────────────────────────────────────
-
-class Milestone(Base):
-    """Grade-band grouping (Learn/Assess/Build/Apply) mapping to GradeConfigs + Goals/Topics/Workshops."""
-    __tablename__ = "milestones"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    description: Mapped[str | None] = mapped_column(Text)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
-
-    grade_configs: Mapped[list[GradeConfig]] = relationship(
-        secondary="milestone_grade_configs",
-        viewonly=True,
-    )
-    goals: Mapped[list[Goal]] = relationship(
-        secondary="milestone_goals",
-        viewonly=True,
-    )
-    topics: Mapped[list[Topic]] = relationship(
-        secondary="milestone_topics",
-        viewonly=True,
-    )
-    workshops = relationship(
-        "Workshop",
-        secondary="milestone_workshops",
-        viewonly=True,
-    )
-
-
-class MilestoneGradeConfig(Base):
-    __tablename__ = "milestone_grade_configs"
-
-    milestone_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("milestones.id", ondelete="CASCADE"), primary_key=True
-    )
-    grade_config_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("grade_configs.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-class MilestoneGoal(Base):
-    __tablename__ = "milestone_goals"
-
-    milestone_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("milestones.id", ondelete="CASCADE"), primary_key=True
-    )
-    goal_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("goals.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-class MilestoneTopic(Base):
-    __tablename__ = "milestone_topics"
-
-    milestone_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("milestones.id", ondelete="CASCADE"), primary_key=True
-    )
-    topic_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
-    )
-
-
-class MilestoneWorkshop(Base):
-    __tablename__ = "milestone_workshops"
-
-    milestone_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("milestones.id", ondelete="CASCADE"), primary_key=True
-    )
-    workshop_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("workshops.id", ondelete="CASCADE"), primary_key=True
-    )
