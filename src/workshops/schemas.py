@@ -74,6 +74,15 @@ class ObjectiveSummary(BaseModel):
     description: str | None
 
 
+class WorkshopObjectiveWithResources(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    description: str | None
+    resources: list[ContentAssetSummary] = []
+
+
 class ObjectiveIdsBody(BaseModel):
     ids: list[uuid.UUID] = []
 
@@ -102,7 +111,7 @@ class WorkshopOut(BaseModel):
     workshop_art_url: str | None
     created_at: datetime
     webinar_count: int
-    objectives: list[ObjectiveSummary] = []
+    objectives: list[WorkshopObjectiveWithResources] = []
     action_items: list[str] = []
     resources: list[ContentAssetSummary] = []
 
@@ -261,6 +270,7 @@ class WorkshopPortalItem(BaseModel):
     workshop_art_url: str | None
     sequence_number: int | None
     action_items: list[str] = []
+    objectives: list[WorkshopObjectiveWithResources] = []
     resources: list[ContentAssetSummary] = []
 
     # Cycle metadata

@@ -35,6 +35,7 @@ from src.workshops.schemas import (
     WebinarSummary,
     WebinarUpdate,
     WorkshopCreate,
+    WorkshopObjectiveWithResources,
     WorkshopOut,
     WorkshopPortalItem,
     WorkshopResourcesUpdate,
@@ -107,6 +108,22 @@ def _apply_zoom_details(data: dict, zoom: dict, *, use_setdefault: bool = False)
             pass
 
 
+def _objective_with_resources(
+    obj: Objective,
+    *,
+    published_only: bool = False,
+) -> WorkshopObjectiveWithResources:
+    assets = obj.content_assets
+    if published_only:
+        assets = [a for a in assets if a.status == "published"]
+    return WorkshopObjectiveWithResources(
+        id=obj.id,
+        name=obj.name,
+        description=obj.description,
+        resources=[ContentAssetSummary.model_validate(a) for a in assets],
+    )
+
+
 def _registration_out(reg: WorkshopRegistration) -> RegistrationOut:
     return RegistrationOut(
         id=reg.id,
@@ -165,6 +182,7 @@ def _to_item(
         workshop_art_url=workshop.workshop_art_url,
         sequence_number=workshop.sequence_number,
         action_items=list(workshop.action_items or []),
+        objectives=[_objective_with_resources(o, published_only=True) for o in workshop.objectives],
         resources=[ContentAssetSummary.model_validate(a) for a in workshop.content_assets if a.status == "published"],
         cycle_name=webinar.cycle.name if webinar.cycle else None,
         prev_cycle_video_embed_code=prev_cycle_video_embed_code,
@@ -409,7 +427,10 @@ def get_school_workshops(school_id: uuid.UUID, db: DbDep) -> SchoolWorkshopsResp
             .where(PortalMapping.school_id == school_id)
             .options(
                 selectinload(PortalMapping.webinar).options(
-                    selectinload(Webinar.workshop).selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
+                    selectinload(Webinar.workshop).options(
+                        selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
+                        selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type),
+                    ),
                     selectinload(Webinar.cycle),
                 )
             )
@@ -459,7 +480,10 @@ def get_school_webinar(school_id: uuid.UUID, webinar_id: uuid.UUID, db: DbDep) -
             )
             .options(
                 selectinload(PortalMapping.webinar).options(
-                    selectinload(Webinar.workshop).selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
+                    selectinload(Webinar.workshop).options(
+                        selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
+                        selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type),
+                    ),
                     selectinload(Webinar.cycle),
                 )
             )
@@ -619,7 +643,7 @@ def get_workshop(workshop_id: uuid.UUID, _admin: AdminDep, db: DbDep):
         .where(Workshop.id == workshop_id)
         .options(
             selectinload(Workshop.webinars),
-            selectinload(Workshop.objectives),
+            selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type),
             selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
         )
     ).scalar_one_or_none()
@@ -637,7 +661,7 @@ def get_workshop(workshop_id: uuid.UUID, _admin: AdminDep, db: DbDep):
         workshop_art_url=obj.workshop_art_url,
         created_at=obj.created_at,
         webinar_count=len(obj.webinars),
-        objectives=[ObjectiveSummary(id=o.id, name=o.name, description=o.description) for o in obj.objectives],
+        objectives=[_objective_with_resources(o) for o in obj.objectives],
         action_items=list(obj.action_items or []),
         resources=[ContentAssetSummary.model_validate(a) for a in obj.content_assets],
     )
@@ -650,7 +674,7 @@ def update_workshop(workshop_id: uuid.UUID, body: WorkshopUpdate, _admin: AdminD
         .where(Workshop.id == workshop_id)
         .options(
             selectinload(Workshop.webinars),
-            selectinload(Workshop.objectives),
+            selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type),
             selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
         )
     ).scalar_one_or_none()
@@ -678,7 +702,7 @@ def update_workshop(workshop_id: uuid.UUID, body: WorkshopUpdate, _admin: AdminD
         workshop_art_url=obj.workshop_art_url,
         created_at=obj.created_at,
         webinar_count=len(obj.webinars),
-        objectives=[ObjectiveSummary(id=o.id, name=o.name, description=o.description) for o in obj.objectives],
+        objectives=[_objective_with_resources(o) for o in obj.objectives],
         action_items=list(obj.action_items or []),
         resources=[ContentAssetSummary.model_validate(a) for a in obj.content_assets],
     )
@@ -747,7 +771,7 @@ def update_workshop_objectives(
         .where(Workshop.id == workshop_id)
         .options(
             selectinload(Workshop.webinars),
-            selectinload(Workshop.objectives),
+            selectinload(Workshop.objectives).selectinload(Objective.content_assets),
             selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
         )
     ).scalar_one_or_none()
@@ -755,19 +779,42 @@ def update_workshop_objectives(
         raise HTTPException(status_code=404, detail="Workshop not found")
 
     new_objectives = db.execute(
-        select(Objective).where(Objective.id.in_(body.ids))
+        select(Objective)
+        .where(Objective.id.in_(body.ids))
+        .options(selectinload(Objective.content_assets))
     ).scalars().all() if body.ids else []
 
     obj.objectives = list(new_objectives)
+
+    # Auto-sync workshop_resources from the union of all linked objective content assets
+    all_asset_ids: dict[uuid.UUID, int] = {}
+    for obj_order, objective in enumerate(new_objectives):
+        for asset in sorted(objective.content_assets, key=lambda a: a.name):
+            if asset.id not in all_asset_ids:
+                all_asset_ids[asset.id] = len(all_asset_ids)
+
+    db.execute(
+        WorkshopResource.__table__.delete().where(
+            WorkshopResource.workshop_id == workshop_id
+        )
+    )
+    for asset_id, sort_order in all_asset_ids.items():
+        db.execute(
+            WorkshopResource.__table__.insert().values(
+                content_asset_id=asset_id,
+                workshop_id=workshop_id,
+                sort_order=sort_order,
+            )
+        )
+
     db.commit()
-    db.refresh(obj)
-    # Reload after commit
+    # Reload after commit with full selectinload chain
     obj = db.execute(
         select(Workshop)
         .where(Workshop.id == workshop_id)
         .options(
             selectinload(Workshop.webinars),
-            selectinload(Workshop.objectives),
+            selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type),
             selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
         )
     ).scalar_one()
@@ -783,7 +830,7 @@ def update_workshop_objectives(
         workshop_art_url=obj.workshop_art_url,
         created_at=obj.created_at,
         webinar_count=len(obj.webinars),
-        objectives=[ObjectiveSummary(id=o.id, name=o.name, description=o.description) for o in obj.objectives],
+        objectives=[_objective_with_resources(o) for o in obj.objectives],
         action_items=list(obj.action_items or []),
         resources=[ContentAssetSummary.model_validate(a) for a in obj.content_assets],
     )
@@ -800,7 +847,7 @@ def update_workshop_resources(
     obj = db.execute(
         select(Workshop)
         .where(Workshop.id == workshop_id)
-        .options(selectinload(Workshop.webinars), selectinload(Workshop.objectives))
+        .options(selectinload(Workshop.webinars), selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type))
     ).scalar_one_or_none()
     if not obj:
         raise HTTPException(status_code=404, detail="Workshop not found")
@@ -826,7 +873,7 @@ def update_workshop_resources(
         .where(Workshop.id == workshop_id)
         .options(
             selectinload(Workshop.webinars),
-            selectinload(Workshop.objectives),
+            selectinload(Workshop.objectives).selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type),
             selectinload(Workshop.content_assets).selectinload(ContentAsset.asset_type),
         )
     ).scalar_one()
@@ -842,7 +889,7 @@ def update_workshop_resources(
         workshop_art_url=obj.workshop_art_url,
         created_at=obj.created_at,
         webinar_count=len(obj.webinars),
-        objectives=[ObjectiveSummary(id=o.id, name=o.name, description=o.description) for o in obj.objectives],
+        objectives=[_objective_with_resources(o) for o in obj.objectives],
         action_items=list(obj.action_items or []),
         resources=[ContentAssetSummary.model_validate(a) for a in obj.content_assets],
     )

@@ -239,6 +239,10 @@ class ObjectiveUpdate(BaseModel):
     description: str | None = None
 
 
+class ObjectiveAssetsUpdate(BaseModel):
+    ids: list[uuid.UUID] = []
+
+
 # ── Content Assets ────────────────────────────────────────────────────────────
 
 class ContentAssetListItem(BaseModel):
@@ -256,6 +260,16 @@ class ContentAssetListItem(BaseModel):
     video_duration_seconds: int | None = None
     popularity_score: int | None = None
     click_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class ObjectiveWithResources(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    created_at: datetime
+    resources: list[ContentAssetListItem] = []
 
     model_config = {"from_attributes": True}
 

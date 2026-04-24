@@ -1,0 +1,346 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 1 },
+      "content": [
+        { "type": "text", "text": "Cost of Attendance: The Full Picture" }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Tuition is usually the first number families see, but it's only one piece of the puzzle. The full Cost of Attendance (COA) includes:"
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Tuition and fees" }]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Housing" }]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Meals" }]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Books and supplies" }]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Transportation" }]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [{ "type": "text", "text": "Personal expenses" }]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "That's everything it takes to get through one year."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Depending on the school, non-tuition costs — housing, meals, and everyday living expenses — can account for "
+        },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "60–65% of the total bill"
+        },
+        {
+          "type": "text",
+          "text": ". This is especially true at in-state public universities where tuition is relatively low."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Living costs are fairly similar no matter where your student attends. Whether it's a state school or a private university, expect to pay roughly "
+        },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "$20,000–$24,000 per year"
+        },
+        {
+          "type": "text",
+          "text": " for housing and meals. The real pricing differences between schools come down to tuition."
+        }
+      ]
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<div class=\"chart-card\">\n  <div class=\"chart-label\">Visual 1 · COA Breakdown</div>\n  <div class=\"chart-title\">Living costs stay constant — tuition drives the difference</div>\n  <div class=\"chart-wrapper tall\">\n    <canvas id=\"chart1\"></canvas>\n  </div>\n</div>\n<script>\n(function(){\n  var _origGetById = document.getElementById.bind(document);\n  var _Chart = typeof Chart !== 'undefined' ? Chart : null;\n  if (!_Chart) return;\n  // Patch Chart constructor to skip null canvas\n  var _OrigChart = _Chart;\n  Chart = function(el, cfg) {\n    if (!el) return {};\n    return new _OrigChart(el, cfg);\n  };\n  Chart.defaults = _OrigChart.defaults;\n  Chart.register = _OrigChart.register;\n  try {\n\nconst colors = {\n  teal: '#4F788D',\n  green: '#6B9D81',\n  seaGlass: '#B0C8C0',\n  saffron: '#E6B830',\n  coral: '#D4604A',\n  forest: '#2E5E4A',\n  navy: '#1E3A5F',\n  text: '#586068'\n};\n\nChart.defaults.font.family = \"'Inter', sans-serif\";\nChart.defaults.color = colors.text;\n\n// Visual 1 — COA stacked bars\nnew Chart(document.getElementById('chart1'), {\n  type: 'bar',\n  data: {\n    labels: ['In-State Public', 'Out-of-State Public', 'Private University'],\n    datasets: [\n      { label: 'Tuition & Fees', data: [12000, 40000, 65000], backgroundColor: colors.teal },\n      { label: 'Housing', data: [12000, 12000, 13000], backgroundColor: colors.green },\n      { label: 'Meals', data: [7000, 7000, 8000], backgroundColor: colors.seaGlass },\n      { label: 'Books, Travel & Personal', data: [4000, 4000, 4000], backgroundColor: colors.saffron }\n    ]\n  },\n  options: {\n    responsive: true,\n    maintainAspectRatio: false,\n    plugins: {\n      legend: { position: 'bottom', labels: { boxWidth: 14, padding: 14 } },\n      tooltip: {\n        callbacks: { label: c => `${c.dataset.label}: $${c.parsed.y.toLocaleString()}` }\n      }\n    },\n    scales: {\n      x: { stacked: true, grid: { display: false } },\n      y: {\n        stacked: true,\n        ticks: { callback: v => '$' + (v/1000) + 'K' },\n        grid: { color: 'rgba(176, 200, 192, 0.3)' }\n      }\n    }\n  }\n});\n\n// Visual 2 — Donut for in-state public\nnew Chart(document.getElementById('chart2'), {\n  type: 'doughnut',\n  data: {\n    labels: ['Tuition & Fees (35%)', 'Housing (35%)', 'Meals (20%)', 'Books, Travel & Personal (10%)'],\n    datasets: [{\n      data: [35, 35, 20, 10],\n      backgroundColor: [colors.teal, colors.green, colors.seaGlass, colors.saffron],\n      borderColor: '#FFFFFF',\n      borderWidth: 3\n    }]\n  },\n  options: {\n    responsive: true,\n    maintainAspectRatio: false,\n    cutout: '60%',\n    plugins: {\n      legend: { position: 'right', labels: { boxWidth: 14, padding: 12 } },\n      tooltip: { callbacks: { label: c => `${c.label}` } }\n    }\n  }\n});\n\n// Visual 3 — Price range spectrum (floating bars)\nnew Chart(document.getElementById('chart3'), {\n  type: 'bar',\n  data: {\n    labels: ['In-State Public', 'Out-of-State Public', 'Private University'],\n    datasets: [{\n      label: 'Sticker Price Range',\n      data: [[25000, 40000], [50000, 80000], [85000, 100000]],\n      backgroundColor: [colors.green, colors.saffron, colors.coral],\n      borderRadius: 6,\n      barThickness: 32\n    }]\n  },\n  options: {\n    indexAxis: 'y',\n    responsive: true,\n    maintainAspectRatio: false,\n    plugins: {\n      legend: { display: false },\n      tooltip: {\n        callbacks: {\n          label: c => `$${c.parsed._custom.min.toLocaleString()} – $${c.parsed._custom.max.toLocaleString()}`\n        }\n      }\n    },\n    scales: {\n      x: {\n        min: 0,\n        max: 110000,\n        ticks: { callback: v => '$' + (v/1000) + 'K' },\n        grid: { color: 'rgba(176, 200, 192, 0.3)' }\n      },\n      y: { grid: { display: false } }\n    }\n  }\n});\n\n  } finally {\n    Chart = _OrigChart;\n  }\n})();\n</script>",
+        "deps": "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css\">\n<link href=\"https://fonts.googleapis.com/css2?family=Aleo:wght@400;500;600&amp;family=Inter:wght@400;500;600&amp;display=swap\" rel=\"stylesheet\">\n<style>\n:root {\n  --color-primary-teal: #4F788D;\n  --color-primary-green: #6B9D81;\n  --color-primary-sea-glass: #B0C8C0;\n  --color-accent-saffron: #E6B830;\n  --color-accent-coral-red: #D4604A;\n  --color-dark-forest: #2E5E4A;\n  --color-dark-navy-ink: #1E3A5F;\n  --color-bg: #F7F9F8;\n  --color-text: #586068;\n  --color-text-emphasis: #2C3E4A;\n  --font-heading: 'Aleo', serif;\n  --font-body: 'Inter', sans-serif;\n}\n\n* { box-sizing: border-box; margin: 0; padding: 0; }\n\nbody {\n  font-family: var(--font-body);\n  font-size: 16px;\n  line-height: 1.6;\n  color: var(--color-text);\n  background: var(--color-bg);\n  padding: 32px 16px;\n}\n\n.container {\n  max-width: 880px;\n  margin: 0 auto;\n  background: #FFFFFF;\n  padding: 56px 64px;\n  border-radius: 8px;\n  box-shadow: 0 2px 12px rgba(0,0,0,0.04);\n}\n\nh1 {\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 2.25rem;\n  line-height: 1.25;\n  color: var(--color-primary-teal);\n  margin-bottom: 24px;\n}\n\nh2 {\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 1.75rem;\n  line-height: 1.25;\n  color: var(--color-dark-forest);\n  margin-top: 48px;\n  margin-bottom: 16px;\n}\n\nh3 {\n  font-family: var(--font-heading);\n  font-weight: 400;\n  font-size: 1.375rem;\n  line-height: 1.3;\n  color: var(--color-primary-teal);\n  margin-top: 32px;\n  margin-bottom: 16px;\n}\n\np {\n  margin-bottom: 24px;\n}\n\nul {\n  margin-bottom: 24px;\n  padding-left: 24px;\n}\n\nul li {\n  margin-bottom: 12px;\n  list-style: none;\n  position: relative;\n  padding-left: 24px;\n}\n\nul li::before {\n  content: \"\\f00c\";\n  font-family: \"Font Awesome 6 Free\";\n  font-weight: 400;\n  color: var(--color-primary-green);\n  position: absolute;\n  left: 0;\n  top: 2px;\n}\n\nstrong, .emphasis {\n  font-weight: 600;\n  color: var(--color-text-emphasis);\n}\n\n/* Chart containers */\n.chart-card {\n  background: var(--color-bg);\n  border-left: 4px solid var(--color-primary-green);\n  border-radius: 6px;\n  padding: 24px;\n  margin: 32px 0;\n}\n\n.chart-card .chart-label {\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 1rem;\n  color: var(--color-dark-forest);\n  text-transform: uppercase;\n  letter-spacing: 0.5px;\n  margin-bottom: 8px;\n}\n\n.chart-card .chart-title {\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 1.25rem;\n  color: var(--color-primary-teal);\n  margin-bottom: 16px;\n}\n\n.chart-wrapper {\n  position: relative;\n  height: 340px;\n  margin-top: 16px;\n}\n\n.chart-wrapper.tall { height: 360px; }\n.chart-wrapper.short { height: 280px; }\n\n/* Table */\n.table-wrapper {\n  overflow-x: auto;\n  margin: 24px 0 32px;\n  border-radius: 6px;\n  border: 1px solid rgba(176, 200, 192, 0.5);\n}\n\ntable {\n  width: 100%;\n  border-collapse: collapse;\n  font-size: 0.95rem;\n}\n\nthead th {\n  background: var(--color-primary-teal);\n  color: #FFFFFF;\n  font-family: var(--font-body);\n  font-weight: 600;\n  text-align: left;\n  padding: 14px 16px;\n}\n\ntbody td {\n  padding: 14px 16px;\n  border-bottom: 1px solid rgba(176, 200, 192, 0.4);\n  color: var(--color-text);\n}\n\ntbody tr:nth-child(even) td {\n  background: rgba(176, 200, 192, 0.1);\n}\n\ntbody tr:last-child td {\n  border-bottom: none;\n}\n\ntbody td:first-child {\n  font-weight: 500;\n  color: var(--color-text-emphasis);\n}\n\n/* Net Price Formula */\n.formula {\n  background: rgba(176, 200, 192, 0.18);\n  border: 1px solid var(--color-primary-sea-glass);\n  border-radius: 8px;\n  padding: 32px 24px;\n  text-align: center;\n  margin: 24px 0 32px;\n}\n\n.formula-equation {\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 1.25rem;\n  color: var(--color-dark-forest);\n  line-height: 1.6;\n}\n\n.formula-equation .op {\n  color: var(--color-accent-coral-red);\n  font-size: 1.5rem;\n  margin: 0 8px;\n  vertical-align: middle;\n}\n\n.formula-equation .term {\n  display: inline-block;\n  padding: 6px 14px;\n  background: #FFFFFF;\n  border-radius: 4px;\n  margin: 4px;\n  border: 1px solid var(--color-primary-sea-glass);\n}\n\n.formula-equation .net {\n  background: var(--color-primary-green);\n  color: #FFFFFF;\n  border-color: var(--color-primary-green);\n}\n\n/* Comparison */\n.comparison {\n  display: grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 20px;\n  margin: 24px 0 32px;\n}\n\n.comparison-card {\n  background: #FFFFFF;\n  border-top: 4px solid var(--color-primary-teal);\n  border-radius: 6px;\n  padding: 24px;\n  box-shadow: 0 1px 6px rgba(0,0,0,0.06);\n}\n\n.comparison-card.public {\n  border-top-color: var(--color-accent-saffron);\n}\n\n.comparison-card h4 {\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 1.125rem;\n  color: var(--color-text-emphasis);\n  margin-bottom: 16px;\n}\n\n.comparison-step {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  padding: 10px 0;\n  border-bottom: 1px dashed rgba(176, 200, 192, 0.6);\n  font-size: 0.95rem;\n}\n\n.comparison-step:last-of-type { border-bottom: none; }\n\n.comparison-step .label { color: var(--color-text); }\n.comparison-step .value { font-weight: 600; color: var(--color-text-emphasis); }\n\n.comparison-net {\n  margin-top: 16px;\n  background: var(--color-primary-green);\n  color: #FFFFFF;\n  padding: 14px;\n  border-radius: 4px;\n  text-align: center;\n  font-family: var(--font-heading);\n  font-weight: 500;\n  font-size: 1.125rem;\n}\n\n.comparison-card.public .comparison-net {\n  background: var(--color-dark-forest);\n}\n\n/* Callout link */\n.cta-link {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n  background: rgba(230, 184, 48, 0.15);\n  border-left: 4px solid var(--color-accent-saffron);\n  padding: 16px 20px;\n  border-radius: 4px;\n  margin: 24px 0 32px;\n  text-decoration: none;\n  color: var(--color-text-emphasis);\n  font-weight: 500;\n  transition: background 0.2s ease;\n}\n\n.cta-link:hover {\n  background: rgba(230, 184, 48, 0.25);\n}\n\n.cta-link i {\n  color: var(--color-dark-forest);\n  font-size: 1.1rem;\n}\n\n/* Intro lede */\n.lede {\n  font-size: 1.125rem;\n  color: var(--color-text-emphasis);\n  border-bottom: 1px solid rgba(176, 200, 192, 0.5);\n  padding-bottom: 32px;\n  margin-bottom: 16px;\n}\n\n@media (max-width: 700px) {\n  .container { padding: 32px 24px; }\n  h1 { font-size: 1.75rem; }\n  h2 { font-size: 1.375rem; }\n  .comparison { grid-template-columns: 1fr; }\n  .formula-equation { font-size: 1rem; }\n}\n</style>\n<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>"
+      }
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<div class=\"chart-card\">\n  <div class=\"chart-label\">Visual 2 · Where Does the Money Go?</div>\n  <div class=\"chart-title\">A typical in-state public — tuition is only part of it</div>\n  <div class=\"chart-wrapper\">\n    <canvas id=\"chart2\"></canvas>\n  </div>\n</div>\n<script>\n(function(){\n  var _origGetById = document.getElementById.bind(document);\n  var _Chart = typeof Chart !== 'undefined' ? Chart : null;\n  if (!_Chart) return;\n  // Patch Chart constructor to skip null canvas\n  var _OrigChart = _Chart;\n  Chart = function(el, cfg) {\n    if (!el) return {};\n    return new _OrigChart(el, cfg);\n  };\n  Chart.defaults = _OrigChart.defaults;\n  Chart.register = _OrigChart.register;\n  try {\n\nconst colors = {\n  teal: '#4F788D',\n  green: '#6B9D81',\n  seaGlass: '#B0C8C0',\n  saffron: '#E6B830',\n  coral: '#D4604A',\n  forest: '#2E5E4A',\n  navy: '#1E3A5F',\n  text: '#586068'\n};\n\nChart.defaults.font.family = \"'Inter', sans-serif\";\nChart.defaults.color = colors.text;\n\n// Visual 1 — COA stacked bars\nnew Chart(document.getElementById('chart1'), {\n  type: 'bar',\n  data: {\n    labels: ['In-State Public', 'Out-of-State Public', 'Private University'],\n    datasets: [\n      { label: 'Tuition & Fees', data: [12000, 40000, 65000], backgroundColor: colors.teal },\n      { label: 'Housing', data: [12000, 12000, 13000], backgroundColor: colors.green },\n      { label: 'Meals', data: [7000, 7000, 8000], backgroundColor: colors.seaGlass },\n      { label: 'Books, Travel & Personal', data: [4000, 4000, 4000], backgroundColor: colors.saffron }\n    ]\n  },\n  options: {\n    responsive: true,\n    maintainAspectRatio: false,\n    plugins: {\n      legend: { position: 'bottom', labels: { boxWidth: 14, padding: 14 } },\n      tooltip: {\n        callbacks: { label: c => `${c.dataset.label}: $${c.parsed.y.toLocaleString()}` }\n      }\n    },\n    scales: {\n      x: { stacked: true, grid: { display: false } },\n      y: {\n        stacked: true,\n        ticks: { callback: v => '$' + (v/1000) + 'K' },\n        grid: { color: 'rgba(176, 200, 192, 0.3)' }\n      }\n    }\n  }\n});\n\n// Visual 2 — Donut for in-state public\nnew Chart(document.getElementById('chart2'), {\n  type: 'doughnut',\n  data: {\n    labels: ['Tuition & Fees (35%)', 'Housing (35%)', 'Meals (20%)', 'Books, Travel & Personal (10%)'],\n    datasets: [{\n      data: [35, 35, 20, 10],\n      backgroundColor: [colors.teal, colors.green, colors.seaGlass, colors.saffron],\n      borderColor: '#FFFFFF',\n      borderWidth: 3\n    }]\n  },\n  options: {\n    responsive: true,\n    maintainAspectRatio: false,\n    cutout: '60%',\n    plugins: {\n      legend: { position: 'right', labels: { boxWidth: 14, padding: 12 } },\n      tooltip: { callbacks: { label: c => `${c.label}` } }\n    }\n  }\n});\n\n// Visual 3 — Price range spectrum (floating bars)\nnew Chart(document.getElementById('chart3'), {\n  type: 'bar',\n  data: {\n    labels: ['In-State Public', 'Out-of-State Public', 'Private University'],\n    datasets: [{\n      label: 'Sticker Price Range',\n      data: [[25000, 40000], [50000, 80000], [85000, 100000]],\n      backgroundColor: [colors.green, colors.saffron, colors.coral],\n      borderRadius: 6,\n      barThickness: 32\n    }]\n  },\n  options: {\n    indexAxis: 'y',\n    responsive: true,\n    maintainAspectRatio: false,\n    plugins: {\n      legend: { display: false },\n      tooltip: {\n        callbacks: {\n          label: c => `$${c.parsed._custom.min.toLocaleString()} – $${c.parsed._custom.max.toLocaleString()}`\n        }\n      }\n    },\n    scales: {\n      x: {\n        min: 0,\n        max: 110000,\n        ticks: { callback: v => '$' + (v/1000) + 'K' },\n        grid: { color: 'rgba(176, 200, 192, 0.3)' }\n      },\n      y: { grid: { display: false } }\n    }\n  }\n});\n\n  } finally {\n    Chart = _OrigChart;\n  }\n})();\n</script>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<a href=\"#\" class=\"cta-link\">\n  <i class=\"fa-regular fa-arrow-right\"></i>\n  <span>See what your family might actually owe after aid: use a college's Net Price Calculator to estimate the real cost of attending.</span>\n</a>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [{ "type": "text", "text": "Today's Pricing Tiers" }]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "College prices vary widely depending on the type of school. Here's a general sense of where things stand, so your family has a frame of reference as you explore options."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "Private universities"
+        },
+        { "type": "text", "text": " typically run " },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "$85,000–$100,000 per year"
+        },
+        {
+          "type": "text",
+          "text": ". Schools like USC and NYU are at or approaching $100,000. That sounds steep — but private schools often have the most financial aid available, which can bring the actual cost down significantly."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "In-state public universities"
+        },
+        { "type": "text", "text": " range from " },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "$25,000–$40,000 per year"
+        },
+        {
+          "type": "text",
+          "text": ". If your student attends a state flagship in your home state, this is usually the lowest sticker price available."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "Out-of-state public universities"
+        },
+        { "type": "text", "text": " fall between " },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "$50,000–$80,000 per year"
+        },
+        {
+          "type": "text",
+          "text": ". Without the in-state tuition benefit, families pay a premium — and most out-of-state publics offer little to no need-based aid to non-residents."
+        }
+      ]
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<div class=\"table-wrapper\">\n  <table>\n    <thead>\n      <tr>\n        <th>School Type</th>\n        <th>Sticker Price</th>\n        <th>Typical Aid</th>\n        <th>Net Price</th>\n        <th>4-Year Cost</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr>\n        <td>Private University</td>\n        <td>$85K–$100K</td>\n        <td>$40K–$55K</td>\n        <td>$45K–$55K</td>\n        <td>$180K–$220K</td>\n      </tr>\n      <tr>\n        <td>In-State Public</td>\n        <td>$25K–$40K</td>\n        <td>$0–$10K</td>\n        <td>$20K–$35K</td>\n        <td>$80K–$140K</td>\n      </tr>\n      <tr>\n        <td>Out-of-State Public</td>\n        <td>$50K–$80K</td>\n        <td>$0–$5K</td>\n        <td>$45K–$75K</td>\n        <td>$180K–$300K</td>\n      </tr>\n    </tbody>\n  </table>\n</div>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<div class=\"chart-card\">\n  <div class=\"chart-label\">Visual 3 · Price Range Spectrum</div>\n  <div class=\"chart-title\">Where each school type falls on the cost continuum</div>\n  <div class=\"chart-wrapper short\">\n    <canvas id=\"chart3\"></canvas>\n  </div>\n</div>\n<script>\n(function(){\n  var _origGetById = document.getElementById.bind(document);\n  var _Chart = typeof Chart !== 'undefined' ? Chart : null;\n  if (!_Chart) return;\n  // Patch Chart constructor to skip null canvas\n  var _OrigChart = _Chart;\n  Chart = function(el, cfg) {\n    if (!el) return {};\n    return new _OrigChart(el, cfg);\n  };\n  Chart.defaults = _OrigChart.defaults;\n  Chart.register = _OrigChart.register;\n  try {\n\nconst colors = {\n  teal: '#4F788D',\n  green: '#6B9D81',\n  seaGlass: '#B0C8C0',\n  saffron: '#E6B830',\n  coral: '#D4604A',\n  forest: '#2E5E4A',\n  navy: '#1E3A5F',\n  text: '#586068'\n};\n\nChart.defaults.font.family = \"'Inter', sans-serif\";\nChart.defaults.color = colors.text;\n\n// Visual 1 — COA stacked bars\nnew Chart(document.getElementById('chart1'), {\n  type: 'bar',\n  data: {\n    labels: ['In-State Public', 'Out-of-State Public', 'Private University'],\n    datasets: [\n      { label: 'Tuition & Fees', data: [12000, 40000, 65000], backgroundColor: colors.teal },\n      { label: 'Housing', data: [12000, 12000, 13000], backgroundColor: colors.green },\n      { label: 'Meals', data: [7000, 7000, 8000], backgroundColor: colors.seaGlass },\n      { label: 'Books, Travel & Personal', data: [4000, 4000, 4000], backgroundColor: colors.saffron }\n    ]\n  },\n  options: {\n    responsive: true,\n    maintainAspectRatio: false,\n    plugins: {\n      legend: { position: 'bottom', labels: { boxWidth: 14, padding: 14 } },\n      tooltip: {\n        callbacks: { label: c => `${c.dataset.label}: $${c.parsed.y.toLocaleString()}` }\n      }\n    },\n    scales: {\n      x: { stacked: true, grid: { display: false } },\n      y: {\n        stacked: true,\n        ticks: { callback: v => '$' + (v/1000) + 'K' },\n        grid: { color: 'rgba(176, 200, 192, 0.3)' }\n      }\n    }\n  }\n});\n\n// Visual 2 — Donut for in-state public\nnew Chart(document.getElementById('chart2'), {\n  type: 'doughnut',\n  data: {\n    labels: ['Tuition & Fees (35%)', 'Housing (35%)', 'Meals (20%)', 'Books, Travel & Personal (10%)'],\n    datasets: [{\n      data: [35, 35, 20, 10],\n      backgroundColor: [colors.teal, colors.green, colors.seaGlass, colors.saffron],\n      borderColor: '#FFFFFF',\n      borderWidth: 3\n    }]\n  },\n  options: {\n    responsive: true,\n    maintainAspectRatio: false,\n    cutout: '60%',\n    plugins: {\n      legend: { position: 'right', labels: { boxWidth: 14, padding: 12 } },\n      tooltip: { callbacks: { label: c => `${c.label}` } }\n    }\n  }\n});\n\n// Visual 3 — Price range spectrum (floating bars)\nnew Chart(document.getElementById('chart3'), {\n  type: 'bar',\n  data: {\n    labels: ['In-State Public', 'Out-of-State Public', 'Private University'],\n    datasets: [{\n      label: 'Sticker Price Range',\n      data: [[25000, 40000], [50000, 80000], [85000, 100000]],\n      backgroundColor: [colors.green, colors.saffron, colors.coral],\n      borderRadius: 6,\n      barThickness: 32\n    }]\n  },\n  options: {\n    indexAxis: 'y',\n    responsive: true,\n    maintainAspectRatio: false,\n    plugins: {\n      legend: { display: false },\n      tooltip: {\n        callbacks: {\n          label: c => `$${c.parsed._custom.min.toLocaleString()} – $${c.parsed._custom.max.toLocaleString()}`\n        }\n      }\n    },\n    scales: {\n      x: {\n        min: 0,\n        max: 110000,\n        ticks: { callback: v => '$' + (v/1000) + 'K' },\n        grid: { color: 'rgba(176, 200, 192, 0.3)' }\n      },\n      y: { grid: { display: false } }\n    }\n  }\n});\n\n  } finally {\n    Chart = _OrigChart;\n  }\n})();\n</script>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Non-tuition costs (housing, meals, books, travel) run roughly "
+        },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "$20,000–$24,000 at most schools"
+        },
+        {
+          "type": "text",
+          "text": ". When comparing colleges, make sure you're looking at the full Cost of Attendance — not just tuition."
+        }
+      ]
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<a href=\"#\" class=\"cta-link\">\n  <i class=\"fa-regular fa-magnifying-glass\"></i>\n  <span>See how generous a college is with need-based aid by searching the Need-Based Financial Aid Data.</span>\n</a>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "heading",
+      "attrs": { "level": 2 },
+      "content": [{ "type": "text", "text": "Sticker Price vs. Net Price" }]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "This is one of the most important things to understand early: "
+        },
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "most students do not pay the full sticker price."
+        },
+        {
+          "type": "text",
+          "text": " The majority receive some combination of need-based grants, merit scholarships, or both."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        { "type": "text", "marks": [{ "type": "bold" }], "text": "Net price" },
+        {
+          "type": "text",
+          "text": " is what your family actually pays after that free money — grants and scholarships — is subtracted. This is the number that matters when comparing schools."
+        }
+      ]
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<div class=\"formula\">\n  <div class=\"formula-equation\">\n    <span class=\"term\">Sticker Price (Full COA)</span>\n    <span class=\"op\">−</span>\n    <span class=\"term\">Grants &amp; Scholarships</span>\n    <span class=\"op\">=</span>\n    <span class=\"term net\">Net Price</span>\n  </div>\n</div>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here's how this plays out in practice. A private university with a $99,000 sticker price might award $50,000 in grants and scholarships. Your family's net price: "
+        },
+        { "type": "text", "marks": [{ "type": "bold" }], "text": "$49,000" },
+        {
+          "type": "text",
+          "text": ". An in-state public at $35,000 with no aid costs exactly "
+        },
+        { "type": "text", "marks": [{ "type": "bold" }], "text": "$35,000" },
+        {
+          "type": "text",
+          "text": ". In this scenario, the \"expensive\" school actually costs more — but for some families, the private school could be the better deal."
+        }
+      ]
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<div class=\"comparison\">\n  <div class=\"comparison-card\">\n    <h4><i class=\"fa-regular fa-building-columns\" style=\"color: var(--color-primary-teal); margin-right: 8px;\"></i>Private University</h4>\n    <div class=\"comparison-step\"><span class=\"label\">Sticker Price</span><span class=\"value\">$99,000</span></div>\n    <div class=\"comparison-step\"><span class=\"label\">Grants &amp; Aid</span><span class=\"value\">−$50,000</span></div>\n    <div class=\"comparison-net\">Net Price: $49,000</div>\n  </div>\n  <div class=\"comparison-card public\">\n    <h4><i class=\"fa-regular fa-school\" style=\"color: var(--color-accent-saffron); margin-right: 8px;\"></i>In-State Public</h4>\n    <div class=\"comparison-step\"><span class=\"label\">Sticker Price</span><span class=\"value\">$35,000</span></div>\n    <div class=\"comparison-step\"><span class=\"label\">Grants &amp; Aid</span><span class=\"value\">−$0</span></div>\n    <div class=\"comparison-net\">Net Price: $35,000</div>\n  </div>\n</div>",
+        "deps": ""
+      }
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "marks": [{ "type": "bold" }],
+          "text": "The takeaway:"
+        },
+        {
+          "type": "text",
+          "text": " never eliminate a school based on sticker price alone. Research each school's aid policies and run their net price calculator to see what your family would actually pay."
+        }
+      ]
+    },
+    {
+      "type": "rawHtml",
+      "attrs": {
+        "html": "<a href=\"#\" class=\"cta-link\">\n  <i class=\"fa-regular fa-calculator\"></i>\n  <span>Find out where your family stands: use the Student Aid Index (SAI) Calculator to estimate your expected family contribution.</span>\n</a>",
+        "deps": ""
+      }
+    }
+  ]
+}

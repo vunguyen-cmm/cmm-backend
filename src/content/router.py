@@ -66,6 +66,8 @@ from src.content.schemas import (
     ObjectiveCreate,
     ObjectiveOut,
     ObjectiveUpdate,
+    ObjectiveWithResources,
+    ObjectiveAssetsUpdate,
     ReaderQuestionCreate,
     ReaderQuestionOut,
     RelationshipsUpdate,
@@ -500,6 +502,64 @@ def delete_objective(objective_id: uuid.UUID, _admin: AdminDep, db: DbDep):
         raise HTTPException(status_code=404, detail="Objective not found")
     db.delete(obj)
     db.commit()
+
+
+@router.get("/objectives/{objective_id}", response_model=ObjectiveWithResources)
+def get_objective(objective_id: uuid.UUID, _admin: AdminDep, db: DbDep):
+    """Admin: get objective detail with its linked content assets."""
+    obj = db.execute(
+        select(Objective)
+        .where(Objective.id == objective_id)
+        .options(
+            selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type)
+        )
+    ).scalar_one_or_none()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Objective not found")
+    return ObjectiveWithResources(
+        id=obj.id,
+        name=obj.name,
+        description=obj.description,
+        created_at=obj.created_at,
+        resources=[ContentAssetListItem.model_validate(a) for a in obj.content_assets],
+    )
+
+
+@router.put("/objectives/{objective_id}/assets", response_model=ObjectiveWithResources)
+def update_objective_assets(objective_id: uuid.UUID, body: ObjectiveAssetsUpdate, _admin: AdminDep, db: DbDep):
+    """Admin: replace linked content assets for an objective."""
+    obj = db.execute(
+        select(Objective)
+        .where(Objective.id == objective_id)
+        .options(
+            selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type)
+        )
+    ).scalar_one_or_none()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Objective not found")
+
+    new_assets = db.execute(
+        select(ContentAsset).where(ContentAsset.id.in_(body.ids))
+    ).scalars().all() if body.ids else []
+
+    obj.content_assets = list(new_assets)
+    db.commit()
+    db.refresh(obj)
+    # Reload with asset_type
+    obj = db.execute(
+        select(Objective)
+        .where(Objective.id == objective_id)
+        .options(
+            selectinload(Objective.content_assets).selectinload(ContentAsset.asset_type)
+        )
+    ).scalar_one()
+    return ObjectiveWithResources(
+        id=obj.id,
+        name=obj.name,
+        description=obj.description,
+        created_at=obj.created_at,
+        resources=[ContentAssetListItem.model_validate(a) for a in obj.content_assets],
+    )
 
 
 # ── Content Assets ────────────────────────────────────────────────────────────
