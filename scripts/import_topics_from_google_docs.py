@@ -1291,18 +1291,72 @@ def _normalize_with_llm(
     )
 
 
-def _resolve_goal_id(conn, row: TopicImportRow) -> str | None:
+def _extract_goal_slug_from_breadcrumb(raw_html: str) -> str | None:
+    """
+    Extract the goal slug from the breadcrumb line at the top of a topic HTML file.
+
+    Expected breadcrumb format (inside an italic <p> or <span>):
+        10th Grade  >  Assessing Your Aid Eligibility  >  Topic Title
+    Returns a slugified version of the middle segment, e.g.
+        "assessing-your-aid-eligibility"
+    """
+    builder = _DOMBuilder()
+    builder.feed(raw_html)
+    root = _dom_find(builder.root, "body") or builder.root
+
+    # The breadcrumb is typically the very first <p> in the document,
+    # rendered in italic/small text.  Walk the first few top-level nodes.
+    def _text(node) -> str:
+        if isinstance(node, str):
+            return node
+        return "".join(_text(c) for c in node.children)
+
+    candidates: list[str] = []
+    for child in root.children[:6]:  # only look at opening nodes
+        if not isinstance(child, _HN):
+            continue
+        if child.tag not in ("p", "div", "span"):
+            continue
+        t = _text(child).strip()
+        # Breadcrumb contains at least one ">" separator and a grade word
+        if ">" in t and re.search(r"\d+(?:th|st|nd|rd)\s+grade", t, re.IGNORECASE):
+            candidates.append(t)
+            break
+
+    if not candidates:
+        return None
+
+    breadcrumb = candidates[0]
+    # Split on ">" or "›" and grab the middle segment
+    parts = [p.strip() for p in re.split(r"[>›\u00bb]", breadcrumb) if p.strip()]
+    if len(parts) < 2:
+        return None
+
+    goal_name = parts[1]  # e.g. "Assessing Your Aid Eligibility"
+    return _slugify(goal_name)
+
+
+def _resolve_goal_id(conn, row: TopicImportRow, raw_html: str | None = None) -> str | None:
     if row.goal_id:
         return row.goal_id
-    if not row.goal_slug:
+
+    goal_slug = row.goal_slug
+
+    # Fall back to breadcrumb extraction when slug not provided in CSV
+    if not goal_slug and raw_html:
+        goal_slug = _extract_goal_slug_from_breadcrumb(raw_html)
+        if goal_slug:
+            print(f"  [INFO] goal_slug extracted from breadcrumb: '{goal_slug}'")
+
+    if not goal_slug:
         return None
 
     result = conn.execute(
         text("SELECT id FROM goals WHERE slug = :slug LIMIT 1"),
-        {"slug": row.goal_slug},
+        {"slug": goal_slug},
     ).fetchone()
     if not result:
-        print(f"  [WARN] row {row.row_number}: goal_slug '{row.goal_slug}' not found — goal will be unset")
+        print(f"  [WARN] row {row.row_number}: goal_slug '{goal_slug}' not found in DB — goal will be unset")
         return None
     return str(result[0])
 
@@ -1331,6 +1385,7 @@ def _upsert_topic(
     create_missing: bool,
     dry_run: bool,
     overwrite: bool = False,
+    raw_html: str | None = None,
 ) -> tuple[str, str]:
     existing = None
 
@@ -1351,7 +1406,7 @@ def _upsert_topic(
     final_content = payload.content_html
     final_action_items = row.action_items if row.action_items is not None else payload.action_items
     final_status = row.status or "draft"
-    final_goal_id = _resolve_goal_id(conn, row)
+    final_goal_id = _resolve_goal_id(conn, row, raw_html=raw_html)
 
     if final_status not in VALID_STATUS:
         final_status = "draft"
@@ -1642,6 +1697,7 @@ def main() -> int:
                     create_missing=args.create_missing,
                     dry_run=args.dry_run,
                     overwrite=args.overwrite,
+                    raw_html=raw_html,
                 )
                 if operation == "inserted":
                     inserted += 1
