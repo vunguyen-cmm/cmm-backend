@@ -686,3 +686,116 @@ def test_ungrouped_send_renders_the_single_recipients_first_name(make_client):
         assert "Hi Paul," in (log.rendered_html or "")
     finally:
         db.close()
+
+
+# ── Draft edit / delete ──────────────────────────────────────────────────────
+
+
+def test_update_draft_broadcast_saves_every_edited_field(make_client):
+    """An admin who left the compose screen mid-way must be able to reopen the
+    draft and change anything before sending."""
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    resp = client.patch(
+        f"/api/v1/emails/broadcasts/{created['id']}",
+        json={
+            "subject": "Rewritten",
+            "body_json": GREETING_DOC,
+            "school_ids": [],
+            "cohort_ids": [],
+            "role_filter": "hub_admin",
+            "opt_in_filter": "all",
+            "sender_name": "News Flash",
+            "sender_email": "newsflash@collegemoneymethod.com",
+            "group_by_school": True,
+            "include_branding": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["subject"] == "Rewritten"
+    assert body["body_json"] == GREETING_DOC
+    assert body["school_ids"] == []
+    assert body["role_filter"] == "hub_admin"
+    assert body["opt_in_filter"] == "all"
+    assert body["sender_email"] == "newsflash@collegemoneymethod.com"
+    assert body["group_by_school"] is True
+    assert body["include_branding"] is True
+    assert body["status"] == "draft"
+
+    # Persisted, not just echoed back.
+    assert client.get(f"/api/v1/emails/broadcasts/{created['id']}").json()["subject"] == "Rewritten"
+
+
+def test_update_draft_broadcast_leaves_unsent_fields_alone(make_client):
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    resp = client.patch(
+        f"/api/v1/emails/broadcasts/{created['id']}", json={"subject": "Only the subject"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["subject"] == "Only the subject"
+    assert body["school_ids"] == [str(SCHOOL_ID)]
+    assert body["body_json"] == SIMPLE_DOC
+
+
+def test_update_broadcast_rejects_sender_outside_allowed_domains(make_client):
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    resp = client.patch(
+        f"/api/v1/emails/broadcasts/{created['id']}", json={"sender_email": "spoof@evil.example"}
+    )
+    assert resp.status_code == 400
+
+
+def test_cannot_edit_a_sent_broadcast(make_client):
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    assert client.post(f"/api/v1/emails/broadcasts/{created['id']}/send").status_code == 202
+    resp = client.patch(f"/api/v1/emails/broadcasts/{created['id']}", json={"subject": "Too late"})
+    assert resp.status_code == 409
+
+
+def test_delete_draft_broadcast_removes_it_from_the_list(make_client):
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    assert client.delete(f"/api/v1/emails/broadcasts/{created['id']}").status_code == 204
+    assert client.get(f"/api/v1/emails/broadcasts/{created['id']}").status_code == 404
+    assert client.get("/api/v1/emails/broadcasts").json() == []
+
+
+def test_delete_draft_keeps_its_test_send_log_rows(make_client):
+    """The FK is ON DELETE SET NULL: discarding a tested draft must not erase
+    the record that a test email went out."""
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    assert client.post(f"/api/v1/emails/broadcasts/{created['id']}/send-test").status_code == 200
+    assert client.delete(f"/api/v1/emails/broadcasts/{created['id']}").status_code == 204
+
+    db = client._session_local()
+    try:
+        logs = db.query(EmailSendLog).all()
+        assert len(logs) == 1
+        assert logs[0].broadcast_id is None
+    finally:
+        db.close()
+
+
+def test_cannot_delete_a_sent_broadcast(make_client):
+    client = make_client("super_admin")
+    created = _create_broadcast(client)
+    assert client.post(f"/api/v1/emails/broadcasts/{created['id']}/send").status_code == 202
+    resp = client.delete(f"/api/v1/emails/broadcasts/{created['id']}")
+    assert resp.status_code == 409
+    assert client.get(f"/api/v1/emails/broadcasts/{created['id']}").status_code == 200
+
+
+@pytest.mark.parametrize("role", ["hub_admin", "hub_user", "viewer"])
+def test_non_super_admin_cannot_edit_or_delete_a_broadcast(make_client, role: str):
+    client = make_client(role)
+    broadcast_id = uuid.uuid4()
+    assert client.patch(
+        f"/api/v1/emails/broadcasts/{broadcast_id}", json={"subject": "x"}
+    ).status_code == 403
+    assert client.delete(f"/api/v1/emails/broadcasts/{broadcast_id}").status_code == 403

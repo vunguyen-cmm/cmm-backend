@@ -25,6 +25,7 @@ from src.emails.broadcast_schemas import (
     BroadcastCreate,
     BroadcastDetailOut,
     BroadcastOut,
+    BroadcastUpdate,
     EmailEngagementOut,
     RecipientStatusRow,
     SendBroadcastRequest,
@@ -198,6 +199,79 @@ def get_broadcast(broadcast_id: uuid.UUID, _admin: AdminDep, db: DbDep) -> Broad
             for r in rows
         ],
     )
+
+
+@router.patch("/{broadcast_id}", response_model=BroadcastOut)
+def update_broadcast(
+    broadcast_id: uuid.UUID, payload: BroadcastUpdate, _admin: AdminDep, db: DbDep
+) -> BroadcastOut:
+    """Edit a draft that has not been sent, so an admin can leave the compose
+    screen mid-way (e.g. after a test send) and come back to finish it.
+
+    Only a "draft" is editable: once a broadcast is sending or sent, its content
+    is what recipients actually received, and rewriting the row would make the
+    send log describe an email nobody got.
+    """
+    broadcast = _get_broadcast_or_404(db, broadcast_id)
+    if broadcast.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Broadcast is {broadcast.status} and can no longer be edited",
+        )
+
+    fields = payload.model_dump(exclude_unset=True)
+
+    # The From identity is a pair: validate whichever half was sent against the
+    # stored other half, so changing only the display name still checks out.
+    if "sender_name" in fields or "sender_email" in fields:
+        try:
+            sender_name, sender_email = validate_sender(
+                fields.get("sender_name", broadcast.sender_name),
+                fields.get("sender_email", broadcast.sender_email),
+            )
+        except InvalidSenderError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        fields["sender_name"], fields["sender_email"] = sender_name, sender_email
+
+    # These three are stored as JSON strings (see Broadcast's module docstring).
+    for key in ("body_json", "school_ids", "cohort_ids"):
+        if key in fields:
+            fields[key] = json.dumps(fields[key])
+
+    for key, value in fields.items():
+        setattr(broadcast, key, value)
+    db.add(broadcast)
+    db.commit()
+    db.refresh(broadcast)
+    return _broadcast_out(broadcast)
+
+
+@router.delete("/{broadcast_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_broadcast(broadcast_id: uuid.UUID, _admin: AdminDep, db: DbDep) -> None:
+    """Discard a draft the admin decided not to send.
+
+    Draft-only: a sent (or in-flight) broadcast is a record of mail real people
+    received, and its send log — open/click analytics included — hangs off this
+    row.
+
+    A draft can still own send-log rows from "send test to myself". Those are a
+    record of mail that really went out, so they are detached rather than
+    deleted. The FK already says ON DELETE SET NULL; doing it explicitly makes
+    the behavior independent of whether the engine enforces it.
+    """
+    broadcast = _get_broadcast_or_404(db, broadcast_id)
+    if broadcast.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Broadcast is {broadcast.status} and can no longer be deleted",
+        )
+    db.execute(
+        update(EmailSendLog)
+        .where(EmailSendLog.broadcast_id == broadcast_id)
+        .values(broadcast_id=None)
+    )
+    db.delete(broadcast)
+    db.commit()
 
 
 @router.get("/{broadcast_id}/analytics", response_model=EmailEngagementOut)
