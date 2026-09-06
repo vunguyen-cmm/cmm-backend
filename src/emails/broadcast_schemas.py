@@ -34,6 +34,29 @@ class BroadcastCreate(BaseModel):
     include_branding: bool = False
 
 
+class BroadcastUpdate(BaseModel):
+    """Partial edit of a DRAFT broadcast — every field optional so the compose
+    form can save whatever it currently holds. A broadcast that has left "draft"
+    is immutable (the router rejects it), since its content is already what
+    recipients received.
+
+    ``sender_name``/``sender_email`` are validated as a pair against the sending
+    allowlist, exactly as on create; sending ``sender_email: ""`` clears the
+    override back to the configured default sender.
+    """
+
+    subject: str | None = Field(default=None, min_length=1)
+    body_json: dict | None = None
+    school_ids: list[str] | None = None
+    cohort_ids: list[str] | None = None
+    role_filter: RoleFilter | None = None
+    opt_in_filter: OptInFilter | None = None
+    sender_name: str | None = None
+    sender_email: str | None = None
+    group_by_school: bool | None = None
+    include_branding: bool | None = None
+
+
 class BroadcastOut(BaseModel):
     id: uuid.UUID
     subject: str
